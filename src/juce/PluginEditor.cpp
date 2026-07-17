@@ -17,38 +17,6 @@ const auto textColour = juce::Colour(0xffe2dfd8);
 const auto secondaryTextColour = juce::Colour(0xff9d9b96);
 const auto inTuneColour = juce::Colour(0xff7d9276);
 
-juce::String formatFrequency(double frequencyHz)
-{
-    return frequencyHz > 0.0 ? juce::String(frequencyHz, 2) + " Hz" : "-- Hz";
-}
-
-juce::String formatCents(double cents)
-{
-    if (cents < -50.0) {
-        return "< -50 cents";
-    }
-    if (cents > 50.0) {
-        return "> +50 cents";
-    }
-
-    const auto sign = cents > 0.0 ? "+" : "";
-    return juce::String(sign) + juce::String(cents, 1) + " cents";
-}
-
-juce::String statusText(const GravePitchSnapshot& snapshot)
-{
-    if (!snapshot.hasPitch) {
-        return "NO SIGNAL";
-    }
-    if (!snapshot.stable) {
-        return "LISTENING";
-    }
-    if (std::abs(snapshot.cents) <= 5.0) {
-        return "IN TUNE";
-    }
-    return snapshot.cents < 0.0 ? "FLAT" : "SHARP";
-}
-
 std::vector<juce::String> editableNoteNames()
 {
     return {
@@ -109,6 +77,48 @@ void MuteToggleButton::paintButton(juce::Graphics& graphics, bool isMouseOver, b
     graphics.drawFittedText(isOn ? "ON" : "OFF", stateBounds, juce::Justification::centred, 1);
 }
 
+InTuneIndicator::InTuneIndicator()
+{
+    setComponentID("inTuneIndicator");
+    setInterceptsMouseClicks(false, false);
+}
+
+void InTuneIndicator::paint(juce::Graphics& graphics)
+{
+    auto bounds = getLocalBounds().toFloat().reduced(2.0f);
+
+    if (active_) {
+        graphics.setColour(inTuneColour.withAlpha(0.18f));
+        graphics.fillEllipse(bounds);
+    }
+
+    const auto lampBounds = bounds.reduced(5.0f);
+    graphics.setColour(active_ ? inTuneColour : raisedPanelColour);
+    graphics.fillEllipse(lampBounds);
+    graphics.setColour(active_ ? inTuneColour.brighter(0.35f) : borderColour.withAlpha(0.75f));
+    graphics.drawEllipse(lampBounds, 1.2f);
+}
+
+void InTuneIndicator::setActive(bool shouldBeActive)
+{
+    if (active_ == shouldBeActive) {
+        return;
+    }
+
+    active_ = shouldBeActive;
+    repaint();
+}
+
+bool InTuneIndicator::isActive() const noexcept
+{
+    return active_;
+}
+
+bool InTuneIndicator::shouldBeActiveFor(const GravePitchSnapshot& snapshot) noexcept
+{
+    return snapshot.hasPitch && snapshot.stable && std::abs(snapshot.cents) <= 5.0;
+}
+
 GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioProcessor& audioProcessor)
     : AudioProcessorEditor(&audioProcessor)
     , processor_(audioProcessor)
@@ -126,17 +136,13 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     configureLabel(noteLabel_, 96.0f, juce::Font::bold, juce::Justification::centred);
     configureLabel(stringLabel_, 20.0f, juce::Font::plain, juce::Justification::centred);
     stringLabel_.setColour(juce::Label::textColourId, secondaryTextColour);
-    configureLabel(frequencyLabel_, 18.0f, juce::Font::plain, juce::Justification::centredLeft);
-    configureLabel(centsLabel_, 18.0f, juce::Font::bold, juce::Justification::centredRight);
-    configureLabel(statusLabel_, 13.0f, juce::Font::bold, juce::Justification::centred);
-    configureLabel(levelLabel_, 13.0f, juce::Font::plain, juce::Justification::centred);
-    levelLabel_.setColour(juce::Label::textColourId, secondaryTextColour);
 
     muteButton_.setToggleState(processor_.outputMuted(), juce::dontSendNotification);
     muteButton_.onClick = [this] {
         processor_.setOutputMuted(muteButton_.getToggleState());
     };
     addAndMakeVisible(muteButton_);
+    addAndMakeVisible(inTuneIndicator_);
 
     tuningDrawerButton_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
     tuningDrawerButton_.setColour(juce::TextButton::buttonColourId, panelColour);
@@ -163,6 +169,7 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
 
     a4Slider_.setRange(432.0, 448.0, 0.1);
     a4Slider_.setValue(processor_.a4Hz(), juce::dontSendNotification);
+    a4Slider_.setDoubleClickReturnValue(true, 440.0);
     a4Slider_.setTextBoxStyle(juce::Slider::TextBoxRight, false, 82, 26);
     a4Slider_.setTextValueSuffix(" Hz");
     a4Slider_.setColour(juce::Slider::thumbColourId, accentColour);
@@ -314,14 +321,11 @@ void GravePitchAudioProcessorEditor::paint(juce::Graphics& graphics)
 
 void GravePitchAudioProcessorEditor::resized()
 {
-    levelLabel_.setBounds(302, 18, 150, 32);
-    muteButton_.setBounds(480, 18, 128, 34);
-    statusLabel_.setBounds(620, 18, 122, 32);
+    muteButton_.setBounds(532, 18, 128, 34);
+    inTuneIndicator_.setBounds(698, 20, 30, 30);
 
     noteLabel_.setBounds(248, 64, 264, 112);
     stringLabel_.setBounds(280, 168, 200, 28);
-    frequencyLabel_.setBounds(36, 198, 220, 30);
-    centsLabel_.setBounds(518, 198, 206, 30);
 
     meterBounds_ = juce::Rectangle<float>(18.0f, 230.0f, 724.0f, 126.0f);
     tuningDrawerButton_.setBounds(250, 390, 260, 42);
@@ -359,7 +363,7 @@ void GravePitchAudioProcessorEditor::timerCallback()
         ? static_cast<float>(std::clamp(currentSnapshot_.displayOpacity, 0.0, 1.0))
         : 1.0f;
 
-    for (auto* label : {&noteLabel_, &stringLabel_, &frequencyLabel_, &centsLabel_}) {
+    for (auto* label : {&noteLabel_, &stringLabel_}) {
         label->setAlpha(pitchOpacity);
     }
 
@@ -367,17 +371,7 @@ void GravePitchAudioProcessorEditor::timerCallback()
     stringLabel_.setText(
         currentSnapshot_.stringNumber > 0 ? "STRING " + juce::String(currentSnapshot_.stringNumber) : "STRING --",
         juce::dontSendNotification);
-    frequencyLabel_.setText(formatFrequency(currentSnapshot_.frequencyHz), juce::dontSendNotification);
-    centsLabel_.setText(currentSnapshot_.hasPitch ? formatCents(currentSnapshot_.cents) : "-- cents", juce::dontSendNotification);
-    levelLabel_.setText(
-        "INPUT  " + juce::String(juce::Decibels::gainToDecibels(currentSnapshot_.rms, -90.0), 1) + " dBFS",
-        juce::dontSendNotification);
-
-    const auto state = statusText(currentSnapshot_);
-    statusLabel_.setText(state, juce::dontSendNotification);
-    statusLabel_.setColour(
-        juce::Label::textColourId,
-        state == "IN TUNE" ? inTuneColour : (state == "NO SIGNAL" ? secondaryTextColour : accentColour));
+    inTuneIndicator_.setActive(InTuneIndicator::shouldBeActiveFor(currentSnapshot_));
 
     muteButton_.setToggleState(processor_.outputMuted(), juce::dontSendNotification);
     if (drawerOpen_ && std::abs(a4Slider_.getValue() - processor_.a4Hz()) >= 0.05) {

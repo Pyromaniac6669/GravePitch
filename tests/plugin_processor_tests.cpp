@@ -1,3 +1,4 @@
+#include "PluginEditor.h"
 #include "PluginProcessor.h"
 
 #include <cmath>
@@ -159,6 +160,73 @@ bool testEditorRendersAtFixedSize()
     return ok;
 }
 
+bool testEditorKeepsOnlyActionableReadouts()
+{
+    GravePitchAudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    bool ok = expectTrue(editor != nullptr, "editor is created for readout inspection");
+    if (editor == nullptr) {
+        return false;
+    }
+
+    bool foundInTuneIndicator = false;
+    bool foundA4Slider = false;
+
+    for (int index = 0; index < editor->getNumChildComponents(); ++index) {
+        auto* component = editor->getChildComponent(index);
+
+        if (component->getComponentID() == "inTuneIndicator") {
+            foundInTuneIndicator = true;
+        }
+
+        if (auto* label = dynamic_cast<juce::Label*>(component)) {
+            const auto text = label->getText();
+            ok &= expectTrue(!text.contains("INPUT"), "input dBFS readout is removed");
+            ok &= expectTrue(!text.contains("cents"), "numeric cents readout is removed");
+            ok &= expectTrue(!text.endsWith("Hz"), "numeric frequency readout is removed");
+            ok &= expectTrue(text != "NO SIGNAL", "text status is replaced by the in-tune indicator");
+        }
+
+        if (auto* slider = dynamic_cast<juce::Slider*>(component)) {
+            foundA4Slider = true;
+            ok &= expectTrue(slider->isDoubleClickReturnEnabled(), "A4 slider enables double-click reset");
+            ok &= expectTrue(std::abs(slider->getDoubleClickReturnValue() - 440.0) < 0.000001,
+                "A4 slider double-click reset returns to 440 Hz");
+        }
+    }
+
+    ok &= expectTrue(foundInTuneIndicator, "editor contains the in-tune indicator");
+    ok &= expectTrue(foundA4Slider, "editor contains the A4 calibration slider");
+    return ok;
+}
+
+bool testInTuneIndicatorState()
+{
+    InTuneIndicator indicator;
+    bool ok = expectTrue(!indicator.isActive(), "in-tune indicator defaults to off");
+    indicator.setActive(true);
+    ok &= expectTrue(indicator.isActive(), "in-tune indicator can be switched on");
+    indicator.setActive(false);
+    ok &= expectTrue(!indicator.isActive(), "in-tune indicator can be switched off");
+
+    GravePitchSnapshot snapshot;
+    snapshot.hasPitch = true;
+    snapshot.stable = true;
+    snapshot.cents = -5.0;
+    ok &= expectTrue(InTuneIndicator::shouldBeActiveFor(snapshot), "minus five cents lights the indicator");
+    snapshot.cents = 5.0;
+    ok &= expectTrue(InTuneIndicator::shouldBeActiveFor(snapshot), "plus five cents lights the indicator");
+    snapshot.cents = 5.1;
+    ok &= expectTrue(!InTuneIndicator::shouldBeActiveFor(snapshot), "more than five cents keeps the indicator off");
+    snapshot.cents = 0.0;
+    snapshot.stable = false;
+    ok &= expectTrue(!InTuneIndicator::shouldBeActiveFor(snapshot), "unstable pitch keeps the indicator off");
+    snapshot.stable = true;
+    snapshot.hasPitch = false;
+    ok &= expectTrue(!InTuneIndicator::shouldBeActiveFor(snapshot), "missing pitch keeps the indicator off");
+    return ok;
+}
+
 bool renderEditorReference(const char* collapsedPath, const char* expandedPath)
 {
     GravePitchAudioProcessor processor;
@@ -203,6 +271,8 @@ int main(int argc, char* argv[])
     ok &= testMuteStateRoundTrips();
     ok &= testLegacyStateDefaultsToMuted();
     ok &= testEditorRendersAtFixedSize();
+    ok &= testEditorKeepsOnlyActionableReadouts();
+    ok &= testInTuneIndicatorState();
 
     if (ok && argc == 3) {
         ok &= expectTrue(renderEditorReference(argv[1], argv[2]), "editor reference images are written");

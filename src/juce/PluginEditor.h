@@ -12,6 +12,18 @@ public:
     void paintButton(juce::Graphics& graphics, bool isMouseOver, bool isButtonDown) override;
 };
 
+class InTuneIndicator final : public juce::Component {
+public:
+    InTuneIndicator();
+    void paint(juce::Graphics& graphics) override;
+    void setActive(bool shouldBeActive);
+    bool isActive() const noexcept;
+    static bool shouldBeActiveFor(const GravePitchSnapshot& snapshot) noexcept;
+
+private:
+    bool active_ = false;
+};
+
 class GravePitchAudioProcessorEditor final
     : public juce::AudioProcessorEditor
     , private juce::Timer {
@@ -39,11 +51,8 @@ private:
 
     juce::Label noteLabel_;
     juce::Label stringLabel_;
-    juce::Label frequencyLabel_;
-    juce::Label centsLabel_;
-    juce::Label statusLabel_;
-    juce::Label levelLabel_;
     MuteToggleButton muteButton_;
+    InTuneIndicator inTuneIndicator_;
     juce::TextButton tuningDrawerButton_;
 
     juce::Label drawerTitleLabel_;
