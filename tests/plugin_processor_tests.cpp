@@ -151,12 +151,41 @@ bool testEditorRendersAtFixedSize()
         return false;
     }
 
-    ok &= expectTrue(editor->getWidth() == 760 && editor->getHeight() == 460, "editor keeps the fixed design size");
+    ok &= expectTrue(editor->getWidth() == 920 && editor->getHeight() == 520, "editor keeps the fixed design size");
+    ok &= expectTrue(!editor->isResizable(), "editor rejects host resizing");
 
-    juce::Image image(juce::Image::ARGB, 760, 460, true);
+    juce::Image image(juce::Image::ARGB, 920, 520, true);
     juce::Graphics graphics(image);
     editor->paintEntireComponent(graphics, true);
     ok &= expectTrue(image.getPixelAt(4, 4).getAlpha() > 0, "editor paints an opaque background");
+    return ok;
+}
+
+bool testCentsScaleIsLinearAndClamped()
+{
+    bool ok = true;
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(-50.0), 0.0f,
+        "minus fifty cents maps to the left endpoint");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(-25.0), 0.25f,
+        "minus twenty-five cents maps to one quarter");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(-10.0), 0.40f,
+        "minus ten cents maps linearly");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(-5.0), 0.45f,
+        "minus five cents maps to the left in-tune boundary");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(0.0), 0.50f,
+        "zero cents maps to the centre");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(5.0), 0.55f,
+        "plus five cents maps to the right in-tune boundary");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(10.0), 0.60f,
+        "plus ten cents maps linearly");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(25.0), 0.75f,
+        "plus twenty-five cents maps to three quarters");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(50.0), 1.0f,
+        "plus fifty cents maps to the right endpoint");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(-80.0), 0.0f,
+        "values below the scale clamp left");
+    ok &= expectNear(GravePitchAudioProcessorEditor::scalePositionForCents(80.0), 1.0f,
+        "values above the scale clamp right");
     return ok;
 }
 
@@ -177,6 +206,8 @@ bool testEditorKeepsOnlyActionableReadouts()
 
         if (component->getComponentID() == "inTuneIndicator") {
             foundInTuneIndicator = true;
+            ok &= expectTrue(component->getBounds() == juce::Rectangle<int>(822, 7, 64, 62),
+                "in-tune indicator uses the enlarged proportional bounds");
         }
 
         if (auto* label = dynamic_cast<juce::Label*>(component)) {
@@ -192,11 +223,140 @@ bool testEditorKeepsOnlyActionableReadouts()
             ok &= expectTrue(slider->isDoubleClickReturnEnabled(), "A4 slider enables double-click reset");
             ok &= expectTrue(std::abs(slider->getDoubleClickReturnValue() - 440.0) < 0.000001,
                 "A4 slider double-click reset returns to 440 Hz");
+            ok &= expectTrue(slider->getTextBoxPosition() == juce::Slider::NoTextBox,
+                "A4 slider does not reserve a hidden value box");
+            ok &= expectTrue(slider->getSliderSnapsToMousePosition(),
+                "A4 slider clicks snap directly to the mouse position");
+            ok &= expectTrue(std::abs(slider->getInterval() - 1.0) < 0.000001,
+                "A4 slider uses whole-Hz steps");
+            ok &= expectTrue(std::abs(slider->getX() + slider->getPositionOfValue(432.0) - 540.0f) < 0.000001f,
+                "A4 minimum aligns with the visible track start");
+            ok &= expectTrue(std::abs(slider->getX() + slider->getPositionOfValue(448.0) - 747.0f) < 0.000001f,
+                "A4 maximum aligns with the visible track end");
         }
     }
 
     ok &= expectTrue(foundInTuneIndicator, "editor contains the in-tune indicator");
     ok &= expectTrue(foundA4Slider, "editor contains the A4 calibration slider");
+    return ok;
+}
+
+bool testEditorUsesSharpOnlyNoteChoices()
+{
+    GravePitchAudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    bool ok = expectTrue(editor != nullptr, "editor is created for note-choice inspection");
+    if (editor == nullptr) {
+        return false;
+    }
+
+    int stringEditorCount = 0;
+    for (int componentIndex = 0; componentIndex < editor->getNumChildComponents(); ++componentIndex) {
+        auto* comboBox = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(componentIndex));
+        if (comboBox == nullptr || comboBox->getNumItems() <= 20) {
+            continue;
+        }
+
+        ++stringEditorCount;
+        ok &= expectTrue(comboBox->getNumItems() == 53, "string editor contains one name per pitch");
+        bool containsSharp = false;
+        bool containsFlat = false;
+        for (int itemIndex = 0; itemIndex < comboBox->getNumItems(); ++itemIndex) {
+            const auto itemText = comboBox->getItemText(itemIndex);
+            containsSharp = containsSharp || itemText.containsChar('#');
+            containsFlat = containsFlat || itemText.containsChar('b');
+        }
+        ok &= expectTrue(containsSharp, "string editor exposes sharp note names");
+        ok &= expectTrue(!containsFlat, "string editor omits enharmonic flat duplicates");
+    }
+
+    ok &= expectTrue(stringEditorCount == 6, "all six string editors use the canonical note list");
+    return ok;
+}
+
+bool testPrimaryNoteNameOmitsOctave()
+{
+    return expectTrue(GravePitchAudioProcessorEditor::noteNameWithoutOctave("D4") == "D",
+               "natural note omits the octave")
+        && expectTrue(GravePitchAudioProcessorEditor::noteNameWithoutOctave("C#4") == "C#",
+            "sharp note omits the octave")
+        && expectTrue(GravePitchAudioProcessorEditor::noteNameWithoutOctave("C-1") == "C",
+            "negative octave is removed as a unit");
+}
+
+bool testA4UsesIntegerSliderOnly()
+{
+    GravePitchAudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    bool ok = expectTrue(editor != nullptr, "editor is created for integer A4 inspection");
+    if (editor == nullptr) {
+        return false;
+    }
+
+    juce::Slider* a4Slider = nullptr;
+    bool foundTextEditor = false;
+    for (int componentIndex = 0; componentIndex < editor->getNumChildComponents(); ++componentIndex) {
+        auto* component = editor->getChildComponent(componentIndex);
+        a4Slider = a4Slider != nullptr ? a4Slider : dynamic_cast<juce::Slider*>(component);
+        foundTextEditor = foundTextEditor || dynamic_cast<juce::TextEditor*>(component) != nullptr;
+    }
+
+    ok &= expectTrue(!foundTextEditor, "A4 calibration does not expose manual text entry");
+    ok &= expectTrue(a4Slider != nullptr, "A4 calibration keeps the slider");
+    if (a4Slider == nullptr) {
+        return false;
+    }
+
+    a4Slider->setValue(442.6, juce::sendNotificationSync);
+    ok &= expectTrue(std::abs(a4Slider->getValue() - 443.0) < 0.000001,
+        "A4 slider snaps fractional input to the nearest whole Hz");
+    ok &= expectTrue(std::abs(processor.a4Hz() - 443.0) < 0.000001,
+        "A4 slider applies the snapped whole-Hz value");
+    return ok;
+}
+
+bool testDrawerDoesNotRelayoutMainInterface()
+{
+    GravePitchAudioProcessor processor;
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    bool ok = expectTrue(editor != nullptr, "editor is created for drawer overlay inspection");
+    if (editor == nullptr) {
+        return false;
+    }
+
+    auto render = [editorPointer = editor.get()] {
+        juce::Image image(juce::Image::ARGB, editorPointer->getWidth(), editorPointer->getHeight(), true);
+        juce::Graphics graphics(image);
+        editorPointer->paintEntireComponent(graphics, true);
+        return image;
+    };
+
+    const auto collapsed = render();
+    for (int componentIndex = 0; componentIndex < editor->getNumChildComponents(); ++componentIndex) {
+        if (auto* button = dynamic_cast<juce::TextButton*>(editor->getChildComponent(componentIndex))) {
+            if (button->getButtonText().contains("6 STRING") && button->onClick != nullptr) {
+                button->onClick();
+                break;
+            }
+        }
+    }
+    const auto expanded = render();
+
+    for (int y = 0; y < 285; ++y) {
+        for (int x = 0; x < editor->getWidth(); ++x) {
+            if (collapsed.getPixelAt(x, y) != expanded.getPixelAt(x, y)) {
+                return expectTrue(false, "drawer overlay keeps the upper main interface pixel-identical");
+            }
+        }
+    }
+
+    int changedPixels = 0;
+    for (int y = 292; y < editor->getHeight(); ++y) {
+        for (int x = 0; x < editor->getWidth(); ++x) {
+            changedPixels += collapsed.getPixelAt(x, y) != expanded.getPixelAt(x, y) ? 1 : 0;
+        }
+    }
+    ok &= expectTrue(changedPixels > 1000, "drawer is painted as a visible lower overlay");
     return ok;
 }
 
@@ -229,7 +389,24 @@ bool testInTuneIndicatorState()
 
 bool renderEditorReference(const char* collapsedPath, const char* expandedPath)
 {
+    constexpr double sampleRate = 48000.0;
+    constexpr int blockSize = 256;
     GravePitchAudioProcessor processor;
+    processor.setTuningIndex(2);
+    processor.prepareToPlay(sampleRate, blockSize);
+
+    juce::AudioBuffer<float> buffer(2, blockSize);
+    juce::MidiBuffer midi;
+    double phase = 0.0;
+    for (int block = 0; block < 48; ++block) {
+        fillStereoSine(buffer, phase, 294.174, sampleRate);
+        processor.processBlock(buffer, midi);
+        juce::Thread::sleep(1);
+    }
+    for (int attempt = 0; attempt < 100 && !processor.snapshot().stable; ++attempt) {
+        juce::Thread::sleep(5);
+    }
+
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
     if (editor == nullptr) {
         return false;
@@ -271,7 +448,12 @@ int main(int argc, char* argv[])
     ok &= testMuteStateRoundTrips();
     ok &= testLegacyStateDefaultsToMuted();
     ok &= testEditorRendersAtFixedSize();
+    ok &= testCentsScaleIsLinearAndClamped();
     ok &= testEditorKeepsOnlyActionableReadouts();
+    ok &= testEditorUsesSharpOnlyNoteChoices();
+    ok &= testPrimaryNoteNameOmitsOctave();
+    ok &= testA4UsesIntegerSliderOnly();
+    ok &= testDrawerDoesNotRelayoutMainInterface();
     ok &= testInTuneIndicatorState();
 
     if (ok && argc == 3) {

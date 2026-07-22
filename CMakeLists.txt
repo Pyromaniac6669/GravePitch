@@ -60,9 +60,29 @@ endif()
 if(_gravepitch_juce_dir)
     add_subdirectory("${_gravepitch_juce_dir}" "${CMAKE_CURRENT_BINARY_DIR}/JUCE")
 
+    set(_gravepitch_icon_big "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/gravepitch_app_icon_1024.png")
+    set(_gravepitch_icon_small "${CMAKE_CURRENT_SOURCE_DIR}/resources/icons/gravepitch_app_icon_64.png")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${_gravepitch_icon_big}"
+        "${_gravepitch_icon_small}"
+    )
+
+    juce_add_binary_data(GravePitchUiAssets
+        SOURCES
+            resources/fonts/OswaldVariable.ttf
+            resources/ui/gravepitch_logo_2x.png
+            resources/ui/in_tune_off_2x.png
+            resources/ui/in_tune_on_2x.png
+            resources/ui/main_plate_clean_wide_2x.png
+            resources/ui/mute_off_2x.png
+            resources/ui/mute_on_2x.png
+    )
+
     juce_add_plugin(GravePitchPlugin
         COMPANY_NAME "GravePitch"
         PRODUCT_NAME "GravePitch"
+        ICON_BIG "${_gravepitch_icon_big}"
+        ICON_SMALL "${_gravepitch_icon_small}"
         PLUGIN_MANUFACTURER_CODE Gptc
         PLUGIN_CODE Gp01
         FORMATS Standalone VST3
@@ -100,6 +120,7 @@ if(_gravepitch_juce_dir)
 
     target_link_libraries(GravePitchPlugin
         PRIVATE
+            GravePitchUiAssets
             gravepitch_core
             juce::juce_audio_utils
             juce::juce_dsp
@@ -130,6 +151,12 @@ if(_gravepitch_juce_dir)
     endif()
 
     if(APPLE)
+        set_property(TARGET GravePitchPlugin_Standalone GravePitchPlugin_VST3
+            APPEND PROPERTY LINK_DEPENDS
+                "${_gravepitch_icon_big}"
+                "${_gravepitch_icon_small}"
+        )
+
         add_custom_command(TARGET GravePitchPlugin_VST3 POST_BUILD
             COMMAND /usr/bin/codesign --force --sign -
                 "$<TARGET_BUNDLE_DIR:GravePitchPlugin_VST3>"

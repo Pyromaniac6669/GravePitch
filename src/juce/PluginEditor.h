@@ -24,6 +24,16 @@ private:
     bool active_ = false;
 };
 
+class InvisibleTextButton final : public juce::TextButton {
+public:
+    void paintButton(juce::Graphics&, bool, bool) override { }
+};
+
+class InvisibleComboBox final : public juce::ComboBox {
+public:
+    void paint(juce::Graphics&) override { }
+};
+
 class GravePitchAudioProcessorEditor final
     : public juce::AudioProcessorEditor
     , private juce::Timer {
@@ -34,35 +44,42 @@ public:
     void paint(juce::Graphics& graphics) override;
     void resized() override;
     void mouseDown(const juce::MouseEvent& event) override;
+    static float scalePositionForCents(double cents) noexcept;
+    static juce::String noteNameWithoutOctave(juce::String noteName);
 
 private:
     void timerCallback() override;
+    void drawPitchReadout(juce::Graphics& graphics) const;
+    void drawTuningScale(juce::Graphics& graphics) const;
+    void drawMovingIndicator(juce::Graphics& graphics) const;
+    void drawDrawerOverlay(juce::Graphics& graphics) const;
+    void drawDrawerValues(juce::Graphics& graphics) const;
     void refreshTuningList();
     void applyCustomTuningFromEditors();
     void setDrawerOpen(bool shouldOpen);
     void updateTuningButtonText();
+    juce::Font uiFont(float height) const;
+    juce::String currentTuningName() const;
     static void styleComboBox(juce::ComboBox& comboBox);
 
     GravePitchAudioProcessor& processor_;
     GravePitchSnapshot currentSnapshot_;
     bool drawerOpen_ = false;
     juce::Rectangle<int> drawerBounds_;
-    juce::Rectangle<float> meterBounds_;
+    juce::Typeface::Ptr uiTypeface_;
+    juce::Image mainPlate_;
+    juce::Image brandLogo_;
+    juce::LookAndFeel_V4 drawerLookAndFeel_;
 
-    juce::Label noteLabel_;
-    juce::Label stringLabel_;
     MuteToggleButton muteButton_;
     InTuneIndicator inTuneIndicator_;
-    juce::TextButton tuningDrawerButton_;
+    InvisibleTextButton tuningDrawerButton_;
 
-    juce::Label drawerTitleLabel_;
-    juce::ComboBox tuningBox_;
+    InvisibleComboBox tuningBox_;
     juce::Slider a4Slider_;
-    juce::Label a4Label_;
-    juce::TextButton saveCustomButton_;
-    juce::TextButton doneButton_;
-    std::array<juce::ComboBox, 6> stringEditors_;
-    std::array<juce::Label, 6> stringLabels_;
+    InvisibleTextButton saveCustomButton_;
+    InvisibleTextButton doneButton_;
+    std::array<InvisibleComboBox, 6> stringEditors_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GravePitchAudioProcessorEditor)
 };
