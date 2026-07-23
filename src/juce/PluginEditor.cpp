@@ -64,26 +64,28 @@ float centsToX(const juce::Rectangle<float>& scaleBounds, double cents)
 
 } // namespace
 
-void GravePitchLookAndFeel::setUiTypefaces(juce::Typeface::Ptr primary, juce::Typeface::Ptr fallback)
+void GravePitchLookAndFeel::setCjkFallbackTypeface(juce::Typeface::Ptr fallback)
 {
-    primaryTypeface_ = std::move(primary);
     fallbackTypeface_ = std::move(fallback);
-    setDefaultSansSerifTypeface(primaryTypeface_);
 }
 
 juce::Font GravePitchLookAndFeel::getPopupMenuFont()
 {
-    return uiFont(17.0f);
+    return withCjkFallback(juce::LookAndFeel_V4::getPopupMenuFont());
 }
 
-juce::Font GravePitchLookAndFeel::getComboBoxFont(juce::ComboBox&)
+juce::Font GravePitchLookAndFeel::getComboBoxFont(juce::ComboBox& comboBox)
 {
-    return uiFont(17.0f);
+    return withCjkFallback(juce::LookAndFeel_V4::getComboBoxFont(comboBox));
 }
 
-juce::Font GravePitchLookAndFeel::uiFont(float height) const
+juce::Font GravePitchLookAndFeel::withCjkFallback(juce::Font font) const
 {
-    return fontWithFallback(primaryTypeface_, fallbackTypeface_, height);
+    if (fallbackTypeface_ != nullptr) {
+        font.setPreferredFallbackFamilies({fallbackTypeface_->getName()});
+    }
+
+    return font;
 }
 
 MuteToggleButton::MuteToggleButton()
@@ -178,7 +180,7 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     cjkTypeface_ = juce::Typeface::createSystemTypefaceFor(
         BinaryData::GravePitchCjkSubset_ttf,
         static_cast<std::size_t>(BinaryData::GravePitchCjkSubset_ttfSize));
-    drawerLookAndFeel_.setUiTypefaces(uiTypeface_, cjkTypeface_);
+    drawerLookAndFeel_.setCjkFallbackTypeface(cjkTypeface_);
     drawerLookAndFeel_.setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xff151819));
     drawerLookAndFeel_.setColour(juce::PopupMenu::textColourId, juce::Colour(0xffd4d0c9));
     drawerLookAndFeel_.setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xff352a1e));

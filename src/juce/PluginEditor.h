@@ -41,14 +41,13 @@ public:
 
 class GravePitchLookAndFeel final : public juce::LookAndFeel_V4 {
 public:
-    void setUiTypefaces(juce::Typeface::Ptr primary, juce::Typeface::Ptr fallback);
+    void setCjkFallbackTypeface(juce::Typeface::Ptr fallback);
     juce::Font getPopupMenuFont() override;
     juce::Font getComboBoxFont(juce::ComboBox&) override;
 
 private:
-    juce::Font uiFont(float height) const;
+    juce::Font withCjkFallback(juce::Font font) const;
 
-    juce::Typeface::Ptr primaryTypeface_;
     juce::Typeface::Ptr fallbackTypeface_;
 };
 

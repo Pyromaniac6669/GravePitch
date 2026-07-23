@@ -318,6 +318,50 @@ bool testBundledCjkFontCoversTranslationCharacters()
     return ok;
 }
 
+bool testPopupMenusKeepPreLocalizationFontMetrics()
+{
+    const auto oswaldTypeface = juce::Typeface::createSystemTypefaceFor(
+        BinaryData::OswaldVariable_ttf,
+        static_cast<std::size_t>(BinaryData::OswaldVariable_ttfSize));
+    const auto cjkTypeface = juce::Typeface::createSystemTypefaceFor(
+        BinaryData::GravePitchCjkSubset_ttf,
+        static_cast<std::size_t>(BinaryData::GravePitchCjkSubset_ttfSize));
+    GravePitchLookAndFeel localizedLookAndFeel;
+    localizedLookAndFeel.setCjkFallbackTypeface(cjkTypeface);
+    juce::LookAndFeel_V4 baselineLookAndFeel;
+
+    const auto actualPopupFont = localizedLookAndFeel.getPopupMenuFont();
+    const auto baselinePopupFont = baselineLookAndFeel.getPopupMenuFont();
+    bool ok = expectTrue(actualPopupFont.getTypefaceName() == baselinePopupFont.getTypefaceName(),
+        "popup menu keeps the pre-localization primary typeface");
+    ok &= expectTrue(actualPopupFont.getTypefacePtr()->getName() == baselinePopupFont.getTypefacePtr()->getName(),
+        "popup menu resolves to the pre-localization system typeface");
+    ok &= expectTrue(actualPopupFont.getTypefacePtr()->getName() != oswaldTypeface->getName(),
+        "popup menu does not force the condensed Oswald typeface");
+    ok &= expectNear(actualPopupFont.getHeight(), baselinePopupFont.getHeight(),
+        "popup menu keeps the pre-localization font height");
+    ok &= expectNear(
+        juce::GlyphArrangement::getStringWidth(actualPopupFont, "D Standard"),
+        juce::GlyphArrangement::getStringWidth(baselinePopupFont, "D Standard"),
+        "popup menu keeps the pre-localization English text width");
+    ok &= expectTrue(actualPopupFont.getPreferredFallbackFamilies().contains(cjkTypeface->getName()),
+        "popup menu adds the bundled CJK fallback");
+
+    juce::ComboBox comboBox;
+    comboBox.setSize(284, 32);
+    const auto actualComboBoxFont = localizedLookAndFeel.getComboBoxFont(comboBox);
+    const auto baselineComboBoxFont = baselineLookAndFeel.getComboBoxFont(comboBox);
+    ok &= expectTrue(actualComboBoxFont.getTypefaceName() == baselineComboBoxFont.getTypefaceName(),
+        "combo box keeps the pre-localization primary typeface");
+    ok &= expectTrue(actualComboBoxFont.getTypefacePtr()->getName() == baselineComboBoxFont.getTypefacePtr()->getName(),
+        "combo box resolves to the pre-localization system typeface");
+    ok &= expectNear(actualComboBoxFont.getHeight(), baselineComboBoxFont.getHeight(),
+        "combo box keeps the pre-localization font height");
+    ok &= expectTrue(actualComboBoxFont.getPreferredFallbackFamilies().contains(cjkTypeface->getName()),
+        "combo box adds the bundled CJK fallback");
+    return ok;
+}
+
 bool testEditorRendersAtFixedSize()
 {
     GravePitchAudioProcessor processor;
@@ -630,6 +674,7 @@ int main(int argc, char* argv[])
     ok &= testUiLanguageStateRoundTripsAndDefaultsSafely();
     ok &= testSimplifiedChineseEditorTextAndInstanceIsolation();
     ok &= testBundledCjkFontCoversTranslationCharacters();
+    ok &= testPopupMenusKeepPreLocalizationFontMetrics();
     ok &= testEditorRendersAtFixedSize();
     ok &= testCentsScaleIsLinearAndClamped();
     ok &= testEditorKeepsOnlyActionableReadouts();
