@@ -1,6 +1,8 @@
 #include "PluginEditor.h"
 #include "PluginProcessor.h"
 
+#include "BinaryData.h"
+
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -140,6 +142,183 @@ bool testLegacyStateDefaultsToMuted()
     restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
 
     return expectTrue(restored.outputMuted(), "legacy state defaults output mute to on");
+}
+
+bool testUiLanguageStateRoundTripsAndDefaultsSafely()
+{
+    GravePitchAudioProcessor source;
+    bool ok = expectTrue(source.uiLanguage() == GravePitchUiLanguage::english,
+        "new instances default to English");
+    source.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
+
+    juce::MemoryBlock state;
+    source.getStateInformation(state);
+
+    GravePitchAudioProcessor restored;
+    restored.setStateInformation(state.getData(), static_cast<int>(state.getSize()));
+    ok &= expectTrue(restored.uiLanguage() == GravePitchUiLanguage::simplifiedChinese,
+        "simplified Chinese language state round-trips");
+
+    juce::ValueTree invalidState("GravePitchState");
+    invalidState.setProperty("a4Hz", 440.0, nullptr);
+    invalidState.setProperty("selectedTuningIndex", 0, nullptr);
+    invalidState.setProperty("customTuning", "", nullptr);
+    invalidState.setProperty("uiLanguage", "unsupported", nullptr);
+    juce::MemoryBlock invalidData;
+    if (auto xml = invalidState.createXml()) {
+        juce::AudioProcessor::copyXmlToBinary(*xml, invalidData);
+    }
+
+    restored.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
+    restored.setStateInformation(invalidData.getData(), static_cast<int>(invalidData.getSize()));
+    ok &= expectTrue(restored.uiLanguage() == GravePitchUiLanguage::english,
+        "unknown language state falls back to English");
+
+    juce::ValueTree legacyState("GravePitchState");
+    legacyState.setProperty("a4Hz", 440.0, nullptr);
+    legacyState.setProperty("selectedTuningIndex", 0, nullptr);
+    legacyState.setProperty("customTuning", "", nullptr);
+    juce::MemoryBlock legacyData;
+    if (auto xml = legacyState.createXml()) {
+        juce::AudioProcessor::copyXmlToBinary(*xml, legacyData);
+    }
+
+    restored.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
+    restored.setStateInformation(legacyData.getData(), static_cast<int>(legacyData.getSize()));
+    ok &= expectTrue(restored.uiLanguage() == GravePitchUiLanguage::english,
+        "legacy state without a language defaults to English");
+    return ok;
+}
+
+bool testSimplifiedChineseEditorTextAndInstanceIsolation()
+{
+    GravePitchAudioProcessor chineseProcessor;
+    chineseProcessor.setCustomTuning({"D2", "G2", "C3", "F3", "A3", "D4"});
+    chineseProcessor.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
+    GravePitchAudioProcessor independentProcessor;
+    independentProcessor.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
+
+    std::unique_ptr<juce::AudioProcessorEditor> editor(chineseProcessor.createEditor());
+    bool ok = expectTrue(editor != nullptr, "simplified Chinese editor is created");
+    if (editor == nullptr) {
+        return false;
+    }
+
+    juce::TextButton* englishButton = nullptr;
+    juce::TextButton* chineseButton = nullptr;
+    juce::TextButton* tuningDrawerButton = nullptr;
+    juce::TextButton* saveButton = nullptr;
+    juce::ComboBox* draftStringEditor = nullptr;
+    bool foundLocalizedDrawerButton = false;
+    bool foundLocalizedSaveButton = false;
+    bool foundLocalizedDoneButton = false;
+    bool foundLocalizedCustomTuning = false;
+
+    for (int index = 0; index < editor->getNumChildComponents(); ++index) {
+        auto* component = editor->getChildComponent(index);
+        if (auto* button = dynamic_cast<juce::TextButton*>(component)) {
+            if (button->getComponentID() == "englishLanguageButton") {
+                englishButton = button;
+            } else if (button->getComponentID() == "chineseLanguageButton") {
+                chineseButton = button;
+            } else if (button->getComponentID() == "tuningDrawerButton") {
+                tuningDrawerButton = button;
+                foundLocalizedDrawerButton = button->getButtonText().contains(juce::String::fromUTF8("自定义"))
+                    && button->getButtonText().contains(juce::String::fromUTF8("6 弦"));
+            } else if (button->getComponentID() == "saveCustomButton") {
+                saveButton = button;
+                foundLocalizedSaveButton = button->getButtonText() == juce::String::fromUTF8("保存为自定义");
+            } else if (button->getComponentID() == "doneButton") {
+                foundLocalizedDoneButton = button->getButtonText() == juce::String::fromUTF8("完成");
+            }
+        }
+
+        if (auto* comboBox = dynamic_cast<juce::ComboBox*>(component)) {
+            if (comboBox->getNumItems() == 7) {
+                foundLocalizedCustomTuning = comboBox->getItemText(0) == "Standard"
+                    && comboBox->getItemText(2) == "D Standard"
+                    && comboBox->getItemText(6) == juce::String::fromUTF8("自定义");
+            } else if (comboBox->getNumItems() == 53 && draftStringEditor == nullptr) {
+                draftStringEditor = comboBox;
+            }
+        }
+    }
+
+    ok &= expectTrue(englishButton != nullptr && chineseButton != nullptr,
+        "editor exposes both language segments");
+    ok &= expectTrue(englishButton != nullptr
+            && englishButton->getBounds() == juce::Rectangle<int>(612, 19, 33, 28),
+        "English language segment uses the reserved top control bounds");
+    ok &= expectTrue(chineseButton != nullptr
+            && chineseButton->getBounds() == juce::Rectangle<int>(645, 19, 33, 28),
+        "Chinese language segment uses the reserved top control bounds");
+    ok &= expectTrue(foundLocalizedDrawerButton, "collapsed tuning control localizes only its generic suffix");
+    ok &= expectTrue(foundLocalizedSaveButton, "save custom action is localized");
+    ok &= expectTrue(foundLocalizedDoneButton, "done action is localized");
+    ok &= expectTrue(foundLocalizedCustomTuning,
+        "custom tuning is localized while built-in tuning names stay English");
+
+    if (tuningDrawerButton != nullptr && tuningDrawerButton->onClick != nullptr) {
+        tuningDrawerButton->onClick();
+    }
+    if (draftStringEditor != nullptr) {
+        draftStringEditor->setSelectedId(1, juce::sendNotificationSync);
+    }
+    const auto draftBeforeLanguageSwitch = draftStringEditor != nullptr
+        ? draftStringEditor->getText()
+        : juce::String();
+
+    if (englishButton != nullptr && englishButton->onClick != nullptr) {
+        englishButton->onClick();
+    }
+    ok &= expectTrue(chineseProcessor.uiLanguage() == GravePitchUiLanguage::english,
+        "English segment changes only its processor instance");
+    ok &= expectTrue(independentProcessor.uiLanguage() == GravePitchUiLanguage::simplifiedChinese,
+        "another processor instance keeps its own language");
+    ok &= expectTrue(tuningDrawerButton != nullptr && !tuningDrawerButton->isVisible(),
+        "language switch keeps the tuning drawer open");
+    ok &= expectTrue(saveButton != nullptr && saveButton->isVisible(),
+        "language switch keeps drawer actions visible");
+    ok &= expectTrue(draftStringEditor != nullptr
+            && draftStringEditor->getText() == draftBeforeLanguageSwitch,
+        "language switch preserves unsaved string editor draft");
+
+    return ok;
+}
+
+bool testBundledCjkFontCoversTranslationCharacters()
+{
+    const juce::LocalisedStrings translations(
+        juce::String::fromUTF8(
+            reinterpret_cast<const char*>(BinaryData::zhHans_txt),
+            BinaryData::zhHans_txtSize),
+        false);
+    const auto typeface = juce::Typeface::createSystemTypefaceFor(
+        BinaryData::GravePitchCjkSubset_ttf,
+        static_cast<std::size_t>(BinaryData::GravePitchCjkSubset_ttfSize));
+    bool ok = expectTrue(translations.getLanguageName() == "Simplified Chinese",
+        "simplified Chinese translation resource parses");
+    ok &= expectTrue(translations.translate("TUNING CONFIGURATION") == juce::String::fromUTF8("调弦设置"),
+        "translation resource contains the tuning configuration title");
+    ok &= expectTrue(translations.translate("SAVE AS CUSTOM") == juce::String::fromUTF8("保存为自定义"),
+        "translation resource contains the custom tuning action");
+    ok &= expectTrue(typeface != nullptr, "bundled CJK subset loads");
+    if (typeface == nullptr) {
+        return false;
+    }
+
+    auto translatedText = juce::String::fromUTF8("中文");
+    for (const auto& value : translations.getMappings().getAllValues()) {
+        translatedText += value;
+    }
+    for (const auto character : translatedText) {
+        if (character > 0x7f) {
+            ok &= expectTrue(typeface->getNominalGlyphForCodepoint(character).has_value(),
+                "bundled CJK subset contains every translated character");
+        }
+    }
+
+    return ok;
 }
 
 bool testEditorRendersAtFixedSize()
@@ -387,12 +566,16 @@ bool testInTuneIndicatorState()
     return ok;
 }
 
-bool renderEditorReference(const char* collapsedPath, const char* expandedPath)
+bool renderEditorReference(
+    GravePitchUiLanguage language,
+    const char* collapsedPath,
+    const char* expandedPath)
 {
     constexpr double sampleRate = 48000.0;
     constexpr int blockSize = 256;
     GravePitchAudioProcessor processor;
     processor.setTuningIndex(2);
+    processor.setUiLanguage(language);
     processor.prepareToPlay(sampleRate, blockSize);
 
     juce::AudioBuffer<float> buffer(2, blockSize);
@@ -427,7 +610,7 @@ bool renderEditorReference(const char* collapsedPath, const char* expandedPath)
 
     for (int index = 0; index < editor->getNumChildComponents(); ++index) {
         if (auto* button = dynamic_cast<juce::TextButton*>(editor->getChildComponent(index))) {
-            if (button->getButtonText().contains("6 STRING") && button->onClick != nullptr) {
+            if (button->getComponentID() == "tuningDrawerButton" && button->onClick != nullptr) {
                 button->onClick();
                 break;
             }
@@ -447,6 +630,9 @@ int main(int argc, char* argv[])
     ok &= testUnmutedAudioPassesThrough();
     ok &= testMuteStateRoundTrips();
     ok &= testLegacyStateDefaultsToMuted();
+    ok &= testUiLanguageStateRoundTripsAndDefaultsSafely();
+    ok &= testSimplifiedChineseEditorTextAndInstanceIsolation();
+    ok &= testBundledCjkFontCoversTranslationCharacters();
     ok &= testEditorRendersAtFixedSize();
     ok &= testCentsScaleIsLinearAndClamped();
     ok &= testEditorKeepsOnlyActionableReadouts();
@@ -456,8 +642,13 @@ int main(int argc, char* argv[])
     ok &= testDrawerDoesNotRelayoutMainInterface();
     ok &= testInTuneIndicatorState();
 
-    if (ok && argc == 3) {
-        ok &= expectTrue(renderEditorReference(argv[1], argv[2]), "editor reference images are written");
+    if (ok && argc == 5) {
+        ok &= expectTrue(
+            renderEditorReference(GravePitchUiLanguage::english, argv[1], argv[2]),
+            "English editor reference images are written");
+        ok &= expectTrue(
+            renderEditorReference(GravePitchUiLanguage::simplifiedChinese, argv[3], argv[4]),
+            "simplified Chinese editor reference images are written");
     }
 
     if (!ok) {

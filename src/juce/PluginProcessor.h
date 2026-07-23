@@ -23,6 +23,11 @@ struct GravePitchSnapshot {
     juce::String targetName;
 };
 
+enum class GravePitchUiLanguage {
+    english,
+    simplifiedChinese
+};
+
 class GravePitchAudioProcessor final : public juce::AudioProcessor {
 public:
     GravePitchAudioProcessor();
@@ -58,11 +63,13 @@ public:
     int tuningIndex() const;
     double a4Hz() const;
     bool outputMuted() const noexcept;
+    GravePitchUiLanguage uiLanguage() const;
 
     void setTuningIndex(int index);
     void setA4Hz(double value);
     void setCustomTuning(const std::vector<juce::String>& notesLowToHigh);
     void setOutputMuted(bool shouldMute) noexcept;
+    void setUiLanguage(GravePitchUiLanguage language);
 
 private:
     void rebuildEngineLocked();
@@ -73,6 +80,7 @@ private:
     double a4Hz_ = gravepitch::defaultA4Hz;
     juce::String customTuningState_;
     std::atomic<bool> outputMuted_ {true};
+    GravePitchUiLanguage uiLanguage_ = GravePitchUiLanguage::english;
 
     gravepitch::RealtimeReadout realtimeReadout_;
     RealtimePitchAnalyzer realtimeAnalyzer_;

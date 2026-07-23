@@ -21,6 +21,19 @@ juce::Image imageFromMemory(const void* data, int size)
     return juce::ImageCache::getFromMemory(data, size);
 }
 
+juce::Font fontWithFallback(
+    const juce::Typeface::Ptr& primary,
+    const juce::Typeface::Ptr& fallback,
+    float height)
+{
+    auto options = juce::FontOptions(primary).withHeight(height);
+    if (fallback != nullptr) {
+        options = options.withFallbacks({fallback->getName()});
+    }
+
+    return juce::Font(options);
+}
+
 std::vector<juce::String> editableNoteNames()
 {
     constexpr std::array<const char*, 12> sharpNames {
@@ -50,6 +63,28 @@ float centsToX(const juce::Rectangle<float>& scaleBounds, double cents)
 }
 
 } // namespace
+
+void GravePitchLookAndFeel::setUiTypefaces(juce::Typeface::Ptr primary, juce::Typeface::Ptr fallback)
+{
+    primaryTypeface_ = std::move(primary);
+    fallbackTypeface_ = std::move(fallback);
+    setDefaultSansSerifTypeface(primaryTypeface_);
+}
+
+juce::Font GravePitchLookAndFeel::getPopupMenuFont()
+{
+    return uiFont(17.0f);
+}
+
+juce::Font GravePitchLookAndFeel::getComboBoxFont(juce::ComboBox&)
+{
+    return uiFont(17.0f);
+}
+
+juce::Font GravePitchLookAndFeel::uiFont(float height) const
+{
+    return fontWithFallback(primaryTypeface_, fallbackTypeface_, height);
+}
 
 MuteToggleButton::MuteToggleButton()
 {
@@ -109,6 +144,11 @@ bool InTuneIndicator::shouldBeActiveFor(const GravePitchSnapshot& snapshot) noex
 GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioProcessor& audioProcessor)
     : AudioProcessorEditor(&audioProcessor)
     , processor_(audioProcessor)
+    , simplifiedChineseStrings_(
+        juce::String::fromUTF8(
+            reinterpret_cast<const char*>(BinaryData::zhHans_txt),
+            BinaryData::zhHans_txtSize),
+        false)
 {
     setOpaque(true);
     setResizeLimits(editorWidth, editorHeight, editorWidth, editorHeight);
@@ -118,11 +158,36 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     brandLogo_ = imageFromMemory(BinaryData::gravepitch_logo_2x_png, BinaryData::gravepitch_logo_2x_pngSize);
     uiTypeface_ = juce::Typeface::createSystemTypefaceFor(
         BinaryData::OswaldVariable_ttf, static_cast<std::size_t>(BinaryData::OswaldVariable_ttfSize));
-    drawerLookAndFeel_.setDefaultSansSerifTypeface(uiTypeface_);
+    cjkTypeface_ = juce::Typeface::createSystemTypefaceFor(
+        BinaryData::GravePitchCjkSubset_ttf,
+        static_cast<std::size_t>(BinaryData::GravePitchCjkSubset_ttfSize));
+    drawerLookAndFeel_.setUiTypefaces(uiTypeface_, cjkTypeface_);
     drawerLookAndFeel_.setColour(juce::PopupMenu::backgroundColourId, juce::Colour(0xff151819));
     drawerLookAndFeel_.setColour(juce::PopupMenu::textColourId, juce::Colour(0xffd4d0c9));
     drawerLookAndFeel_.setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xff352a1e));
     drawerLookAndFeel_.setColour(juce::PopupMenu::highlightedTextColourId, accentColour);
+
+    auto configureLanguageButton = [this](juce::TextButton& button, const juce::String& componentId) {
+        button.setComponentID(componentId);
+        button.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+        button.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
+        button.setColour(juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
+        button.setColour(juce::TextButton::textColourOffId, juce::Colours::transparentBlack);
+        button.setColour(juce::TextButton::textColourOnId, juce::Colours::transparentBlack);
+        addAndMakeVisible(button);
+    };
+    configureLanguageButton(englishLanguageButton_, "englishLanguageButton");
+    englishLanguageButton_.setButtonText("EN");
+    englishLanguageButton_.onClick = [this] {
+        processor_.setUiLanguage(GravePitchUiLanguage::english);
+        syncLanguageFromProcessor();
+    };
+    configureLanguageButton(chineseLanguageButton_, "chineseLanguageButton");
+    chineseLanguageButton_.setButtonText(juce::String::fromUTF8("中文"));
+    chineseLanguageButton_.onClick = [this] {
+        processor_.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
+        syncLanguageFromProcessor();
+    };
 
     muteButton_.setToggleState(processor_.outputMuted(), juce::dontSendNotification);
     muteButton_.onClick = [this] {
@@ -131,6 +196,7 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     addAndMakeVisible(muteButton_);
     addAndMakeVisible(inTuneIndicator_);
 
+    tuningDrawerButton_.setComponentID("tuningDrawerButton");
     tuningDrawerButton_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
     tuningDrawerButton_.setColour(juce::TextButton::buttonColourId, juce::Colours::transparentBlack);
     tuningDrawerButton_.setColour(juce::TextButton::buttonOnColourId, juce::Colours::transparentBlack);
@@ -185,16 +251,18 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     };
 
     configureDrawerButton(saveCustomButton_);
-    saveCustomButton_.setButtonText("SAVE AS CUSTOM");
+    saveCustomButton_.setComponentID("saveCustomButton");
     saveCustomButton_.onClick = [this] {
         applyCustomTuningFromEditors();
         refreshTuningList();
     };
 
     configureDrawerButton(doneButton_);
-    doneButton_.setButtonText("DONE");
+    doneButton_.setComponentID("doneButton");
     doneButton_.onClick = [this] { setDrawerOpen(false); };
 
+    uiLanguage_ = processor_.uiLanguage();
+    updateLocalizedComponentText();
     refreshTuningList();
     setDrawerOpen(false);
     currentSnapshot_ = processor_.snapshot();
@@ -204,7 +272,27 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
 
 juce::Font GravePitchAudioProcessorEditor::uiFont(float height) const
 {
-    return juce::Font(juce::FontOptions(uiTypeface_).withHeight(height));
+    return fontWithFallback(uiTypeface_, cjkTypeface_, height);
+}
+
+juce::String GravePitchAudioProcessorEditor::translate(const juce::String& englishText) const
+{
+    return uiLanguage_ == GravePitchUiLanguage::simplifiedChinese
+        ? simplifiedChineseStrings_.translate(englishText)
+        : englishText;
+}
+
+juce::String GravePitchAudioProcessorEditor::stringLabel(int stringNumber) const
+{
+    if (uiLanguage_ == GravePitchUiLanguage::simplifiedChinese) {
+        return (stringNumber > 0 ? juce::String(stringNumber) : juce::String("--"))
+            + " "
+            + translate("STRING");
+    }
+
+    return stringNumber > 0
+        ? "STRING " + juce::String(stringNumber)
+        : juce::String("STRING --");
 }
 
 float GravePitchAudioProcessorEditor::scalePositionForCents(double cents) noexcept
@@ -234,9 +322,7 @@ void GravePitchAudioProcessorEditor::drawPitchReadout(juce::Graphics& graphics) 
     const auto noteText = currentSnapshot_.hasPitch
         ? noteNameWithoutOctave(currentSnapshot_.noteName)
         : juce::String("--");
-    const auto stringText = currentSnapshot_.stringNumber > 0
-        ? "STRING " + juce::String(currentSnapshot_.stringNumber)
-        : juce::String("STRING --");
+    const auto stringText = stringLabel(currentSnapshot_.stringNumber);
     const juce::Rectangle<float> noteBounds(325.0f, 82.0f, 270.0f, 146.0f);
     const juce::Rectangle<int> stringBounds(340, 219, 240, 31);
 
@@ -386,13 +472,50 @@ void GravePitchAudioProcessorEditor::drawMovingIndicator(juce::Graphics& graphic
     graphics.fillPath(marker);
 }
 
+void GravePitchAudioProcessorEditor::drawLanguageSwitch(juce::Graphics& graphics) const
+{
+    const auto englishBounds = englishLanguageButton_.getBounds().toFloat();
+    const auto chineseBounds = chineseLanguageButton_.getBounds().toFloat();
+    const auto switchBounds = englishBounds.getUnion(chineseBounds);
+    const auto englishSelected = uiLanguage_ == GravePitchUiLanguage::english;
+
+    graphics.setColour(juce::Colour(0xff07090a).withAlpha(0.76f));
+    graphics.fillRoundedRectangle(switchBounds, 3.0f);
+    graphics.setColour(juce::Colour(0xff77716c).withAlpha(0.66f));
+    graphics.drawRoundedRectangle(switchBounds.reduced(0.5f), 3.0f, 1.0f);
+
+    const auto selectedBounds = englishSelected ? englishBounds : chineseBounds;
+    graphics.setColour(juce::Colour(0xff3b2b1b).withAlpha(0.94f));
+    graphics.fillRoundedRectangle(selectedBounds.reduced(1.0f), 2.0f);
+    graphics.setColour(accentColour.withAlpha(0.88f));
+    graphics.drawRoundedRectangle(selectedBounds.reduced(1.0f), 2.0f, 1.0f);
+    graphics.setColour(juce::Colour(0xff77716c).withAlpha(0.48f));
+    graphics.drawLine(englishBounds.getRight(), switchBounds.getY() + 4.0f,
+        englishBounds.getRight(), switchBounds.getBottom() - 4.0f, 0.8f);
+
+    graphics.setFont(uiFont(14.0f));
+    graphics.setColour(englishSelected ? accentColour : secondaryTextColour);
+    graphics.drawFittedText("EN", englishBounds.toNearestInt(), juce::Justification::centred, 1);
+    graphics.setColour(englishSelected ? secondaryTextColour : accentColour);
+    graphics.drawFittedText(
+        juce::String::fromUTF8("中文"),
+        chineseBounds.toNearestInt(),
+        juce::Justification::centred,
+        1);
+}
+
 juce::String GravePitchAudioProcessorEditor::currentTuningName() const
 {
     const auto allTunings = processor_.tunings();
     const auto selectedIndex = processor_.tuningIndex();
-    return selectedIndex >= 0 && selectedIndex < static_cast<int>(allTunings.size())
-        ? juce::String(allTunings[static_cast<std::size_t>(selectedIndex)].name).toUpperCase()
-        : juce::String("TUNING");
+    if (selectedIndex < 0 || selectedIndex >= static_cast<int>(allTunings.size())) {
+        return translate("TUNING");
+    }
+
+    const auto& tuning = allTunings[static_cast<std::size_t>(selectedIndex)];
+    return tuning.id == "custom"
+        ? translate("Custom")
+        : juce::String(tuning.name).toUpperCase();
 }
 
 void GravePitchAudioProcessorEditor::drawDrawerValues(juce::Graphics& graphics) const
@@ -476,22 +599,22 @@ void GravePitchAudioProcessorEditor::drawDrawerOverlay(juce::Graphics& graphics)
 
     graphics.setColour(juce::Colour(0xffd0cbc3));
     graphics.setFont(uiFont(19.0f).withExtraKerningFactor(0.08f));
-    graphics.drawFittedText("TUNING CONFIGURATION", {36, 298, 260, 28}, juce::Justification::centredLeft, 1);
+    graphics.drawFittedText(translate("TUNING CONFIGURATION"), {36, 298, 260, 28}, juce::Justification::centredLeft, 1);
 
     graphics.setFont(uiFont(17.0f).withExtraKerningFactor(0.06f));
-    graphics.drawFittedText("TUNING PRESET", {40, 332, 84, 32}, juce::Justification::centredLeft, 1);
-    graphics.drawFittedText("A4 CALIBRATION", {442, 332, 92, 32}, juce::Justification::centredLeft, 1);
+    graphics.drawFittedText(translate("TUNING PRESET"), {40, 332, 84, 32}, juce::Justification::centredLeft, 1);
+    graphics.drawFittedText(translate("A4 CALIBRATION"), {442, 332, 92, 32}, juce::Justification::centredLeft, 1);
 
     graphics.setFont(uiFont(18.0f).withExtraKerningFactor(0.07f));
     for (std::size_t i = 0; i < stringEditors_.size(); ++i) {
         const auto x = 49 + static_cast<int>(i) * 138;
-        graphics.drawFittedText("STRING " + juce::String(6 - static_cast<int>(i)), {x, 382, 118, 28}, juce::Justification::centred, 1);
+        graphics.drawFittedText(stringLabel(6 - static_cast<int>(i)), {x, 382, 118, 28}, juce::Justification::centred, 1);
     }
 
     graphics.setFont(uiFont(17.0f).withExtraKerningFactor(0.10f));
-    graphics.drawFittedText("SAVE AS CUSTOM", {294, 463, 140, 31}, juce::Justification::centred, 1);
+    graphics.drawFittedText(translate("SAVE AS CUSTOM"), {294, 463, 140, 31}, juce::Justification::centred, 1);
     graphics.setColour(accentColour);
-    graphics.drawFittedText("DONE", {459, 463, 130, 31}, juce::Justification::centred, 1);
+    graphics.drawFittedText(translate("DONE"), {459, 463, 130, 31}, juce::Justification::centred, 1);
 }
 
 void GravePitchAudioProcessorEditor::paint(juce::Graphics& graphics)
@@ -499,6 +622,7 @@ void GravePitchAudioProcessorEditor::paint(juce::Graphics& graphics)
     graphics.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
     graphics.drawImage(mainPlate_, getLocalBounds().toFloat());
     graphics.drawImage(brandLogo_, juce::Rectangle<float>(24.0f, 12.0f, 300.0f, 90.0f));
+    drawLanguageSwitch(graphics);
     drawPitchReadout(graphics);
     drawTuningScale(graphics);
     drawMovingIndicator(graphics);
@@ -509,12 +633,18 @@ void GravePitchAudioProcessorEditor::paint(juce::Graphics& graphics)
     } else {
         graphics.setFont(uiFont(19.0f).withExtraKerningFactor(0.14f));
         graphics.setColour(accentColour);
-        graphics.drawFittedText(currentTuningName() + "  ·  6 STRING", {310, 437, 300, 39}, juce::Justification::centred, 1);
+        graphics.drawFittedText(
+            currentTuningName() + juce::String::fromUTF8("  ·  ") + translate("6 STRING"),
+            {310, 437, 300, 39},
+            juce::Justification::centred,
+            1);
     }
 }
 
 void GravePitchAudioProcessorEditor::resized()
 {
+    englishLanguageButton_.setBounds(612, 19, 33, 28);
+    chineseLanguageButton_.setBounds(645, 19, 33, 28);
     muteButton_.setBounds(688, 13, 125, 42);
     inTuneIndicator_.setBounds(822, 7, 64, 62);
 
@@ -545,6 +675,7 @@ void GravePitchAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
 
 void GravePitchAudioProcessorEditor::timerCallback()
 {
+    syncLanguageFromProcessor();
     currentSnapshot_ = processor_.snapshot();
     inTuneIndicator_.setActive(InTuneIndicator::shouldBeActiveFor(currentSnapshot_));
 
@@ -557,18 +688,23 @@ void GravePitchAudioProcessorEditor::timerCallback()
     repaint();
 }
 
-void GravePitchAudioProcessorEditor::refreshTuningList()
+void GravePitchAudioProcessorEditor::refreshTuningList(bool refreshStringEditors)
 {
     const auto allTunings = processor_.tunings();
     const int selectedIndex = processor_.tuningIndex();
 
     tuningBox_.clear(juce::dontSendNotification);
     for (int i = 0; i < static_cast<int>(allTunings.size()); ++i) {
-        tuningBox_.addItem(allTunings[static_cast<std::size_t>(i)].name, i + 1);
+        const auto& tuning = allTunings[static_cast<std::size_t>(i)];
+        tuningBox_.addItem(
+            tuning.id == "custom" ? translate("Custom") : juce::String(tuning.name),
+            i + 1);
     }
     tuningBox_.setSelectedId(selectedIndex + 1, juce::dontSendNotification);
 
-    if (selectedIndex >= 0 && selectedIndex < static_cast<int>(allTunings.size())) {
+    if (refreshStringEditors
+        && selectedIndex >= 0
+        && selectedIndex < static_cast<int>(allTunings.size())) {
         const auto& notes = allTunings[static_cast<std::size_t>(selectedIndex)].midiNotesLowToHigh;
         for (std::size_t i = 0; i < stringEditors_.size() && i < notes.size(); ++i) {
             stringEditors_[i].setText(gravepitch::noteNameForMidi(notes[i]), juce::dontSendNotification);
@@ -614,9 +750,30 @@ void GravePitchAudioProcessorEditor::setDrawerOpen(bool shouldOpen)
     repaint();
 }
 
+void GravePitchAudioProcessorEditor::syncLanguageFromProcessor()
+{
+    const auto nextLanguage = processor_.uiLanguage();
+    if (uiLanguage_ == nextLanguage) {
+        return;
+    }
+
+    uiLanguage_ = nextLanguage;
+    updateLocalizedComponentText();
+    refreshTuningList(false);
+    repaint();
+}
+
+void GravePitchAudioProcessorEditor::updateLocalizedComponentText()
+{
+    saveCustomButton_.setButtonText(translate("SAVE AS CUSTOM"));
+    doneButton_.setButtonText(translate("DONE"));
+    updateTuningButtonText();
+}
+
 void GravePitchAudioProcessorEditor::updateTuningButtonText()
 {
-    tuningDrawerButton_.setButtonText(currentTuningName() + "  ·  6 STRING");
+    tuningDrawerButton_.setButtonText(
+        currentTuningName() + juce::String::fromUTF8("  ·  ") + translate("6 STRING"));
     repaint();
 }
 
