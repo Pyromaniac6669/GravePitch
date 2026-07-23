@@ -204,8 +204,7 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
         return false;
     }
 
-    juce::TextButton* englishButton = nullptr;
-    juce::TextButton* chineseButton = nullptr;
+    juce::TextButton* languageMenuButton = nullptr;
     juce::TextButton* tuningDrawerButton = nullptr;
     juce::TextButton* saveButton = nullptr;
     juce::ComboBox* draftStringEditor = nullptr;
@@ -217,10 +216,8 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
     for (int index = 0; index < editor->getNumChildComponents(); ++index) {
         auto* component = editor->getChildComponent(index);
         if (auto* button = dynamic_cast<juce::TextButton*>(component)) {
-            if (button->getComponentID() == "englishLanguageButton") {
-                englishButton = button;
-            } else if (button->getComponentID() == "chineseLanguageButton") {
-                chineseButton = button;
+            if (button->getComponentID() == "languageMenuButton") {
+                languageMenuButton = button;
             } else if (button->getComponentID() == "tuningDrawerButton") {
                 tuningDrawerButton = button;
                 foundLocalizedDrawerButton = button->getButtonText().contains(juce::String::fromUTF8("自定义"))
@@ -244,14 +241,14 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
         }
     }
 
-    ok &= expectTrue(englishButton != nullptr && chineseButton != nullptr,
-        "editor exposes both language segments");
-    ok &= expectTrue(englishButton != nullptr
-            && englishButton->getBounds() == juce::Rectangle<int>(612, 19, 33, 28),
-        "English language segment uses the reserved top control bounds");
-    ok &= expectTrue(chineseButton != nullptr
-            && chineseButton->getBounds() == juce::Rectangle<int>(645, 19, 33, 28),
-        "Chinese language segment uses the reserved top control bounds");
+    ok &= expectTrue(languageMenuButton != nullptr,
+        "editor exposes the language overflow menu");
+    ok &= expectTrue(languageMenuButton != nullptr
+            && languageMenuButton->getBounds() == juce::Rectangle<int>(887, 17, 25, 32),
+        "language menu uses the unobtrusive top-right bounds");
+    ok &= expectTrue(languageMenuButton != nullptr
+            && languageMenuButton->getTitle() == juce::String::fromUTF8("Language / 语言"),
+        "language menu keeps a bilingual accessible title");
     ok &= expectTrue(foundLocalizedDrawerButton, "collapsed tuning control localizes only its generic suffix");
     ok &= expectTrue(foundLocalizedSaveButton, "save custom action is localized");
     ok &= expectTrue(foundLocalizedDoneButton, "done action is localized");
@@ -268,11 +265,11 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
         ? draftStringEditor->getText()
         : juce::String();
 
-    if (englishButton != nullptr && englishButton->onClick != nullptr) {
-        englishButton->onClick();
-    }
+    chineseProcessor.setUiLanguage(GravePitchUiLanguage::english);
+    juce::Thread::sleep(40);
+    juce::Timer::callPendingTimersSynchronously();
     ok &= expectTrue(chineseProcessor.uiLanguage() == GravePitchUiLanguage::english,
-        "English segment changes only its processor instance");
+        "language preference changes only its processor instance");
     ok &= expectTrue(independentProcessor.uiLanguage() == GravePitchUiLanguage::simplifiedChinese,
         "another processor instance keeps its own language");
     ok &= expectTrue(tuningDrawerButton != nullptr && !tuningDrawerButton->isVisible(),
@@ -307,7 +304,7 @@ bool testBundledCjkFontCoversTranslationCharacters()
         return false;
     }
 
-    auto translatedText = juce::String::fromUTF8("中文");
+    auto translatedText = juce::String::fromUTF8("简体中文语言");
     for (const auto& value : translations.getMappings().getAllValues()) {
         translatedText += value;
     }
