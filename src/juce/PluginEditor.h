@@ -34,6 +34,19 @@ public:
     void paint(juce::Graphics&) override { }
 };
 
+class GravePitchLookAndFeel final : public juce::LookAndFeel_V4 {
+public:
+    void setUiTypefaces(juce::Typeface::Ptr primary, juce::Typeface::Ptr fallback);
+    juce::Font getPopupMenuFont() override;
+    juce::Font getComboBoxFont(juce::ComboBox&) override;
+
+private:
+    juce::Font uiFont(float height) const;
+
+    juce::Typeface::Ptr primaryTypeface_;
+    juce::Typeface::Ptr fallbackTypeface_;
+};
+
 class GravePitchAudioProcessorEditor final
     : public juce::AudioProcessorEditor
     , private juce::Timer {
@@ -52,13 +65,18 @@ private:
     void drawPitchReadout(juce::Graphics& graphics) const;
     void drawTuningScale(juce::Graphics& graphics) const;
     void drawMovingIndicator(juce::Graphics& graphics) const;
+    void drawLanguageSwitch(juce::Graphics& graphics) const;
     void drawDrawerOverlay(juce::Graphics& graphics) const;
     void drawDrawerValues(juce::Graphics& graphics) const;
-    void refreshTuningList();
+    void refreshTuningList(bool refreshStringEditors = true);
     void applyCustomTuningFromEditors();
     void setDrawerOpen(bool shouldOpen);
+    void syncLanguageFromProcessor();
+    void updateLocalizedComponentText();
     void updateTuningButtonText();
     juce::Font uiFont(float height) const;
+    juce::String translate(const juce::String& englishText) const;
+    juce::String stringLabel(int stringNumber) const;
     juce::String currentTuningName() const;
     static void styleComboBox(juce::ComboBox& comboBox);
 
@@ -67,10 +85,15 @@ private:
     bool drawerOpen_ = false;
     juce::Rectangle<int> drawerBounds_;
     juce::Typeface::Ptr uiTypeface_;
+    juce::Typeface::Ptr cjkTypeface_;
     juce::Image mainPlate_;
     juce::Image brandLogo_;
-    juce::LookAndFeel_V4 drawerLookAndFeel_;
+    GravePitchLookAndFeel drawerLookAndFeel_;
+    juce::LocalisedStrings simplifiedChineseStrings_;
+    GravePitchUiLanguage uiLanguage_ = GravePitchUiLanguage::english;
 
+    InvisibleTextButton englishLanguageButton_;
+    InvisibleTextButton chineseLanguageButton_;
     MuteToggleButton muteButton_;
     InTuneIndicator inTuneIndicator_;
     InvisibleTextButton tuningDrawerButton_;

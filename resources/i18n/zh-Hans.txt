@@ -1,0 +1,12 @@
+language: Simplified Chinese
+countries: cn sg
+
+"TUNING" = "调弦"
+"STRING" = "弦"
+"6 STRING" = "6 弦"
+"TUNING CONFIGURATION" = "调弦设置"
+"TUNING PRESET" = "调弦预设"
+"A4 CALIBRATION" = "A4 校准"
+"SAVE AS CUSTOM" = "保存为自定义"
+"DONE" = "完成"
+"Custom" = "自定义"

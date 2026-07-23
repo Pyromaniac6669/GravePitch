@@ -67,9 +67,20 @@ if(_gravepitch_juce_dir)
         "${_gravepitch_icon_small}"
     )
 
+    set(_gravepitch_plist_to_merge "")
+    if(APPLE)
+        set(_gravepitch_plist_fragment "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/Info.plist")
+        file(READ "${_gravepitch_plist_fragment}" _gravepitch_plist_to_merge)
+        set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+            "${_gravepitch_plist_fragment}"
+        )
+    endif()
+
     juce_add_binary_data(GravePitchUiAssets
         SOURCES
+            resources/fonts/GravePitchCjkSubset.ttf
             resources/fonts/OswaldVariable.ttf
+            resources/i18n/zh-Hans.txt
             resources/ui/gravepitch_logo_2x.png
             resources/ui/in_tune_off_2x.png
             resources/ui/in_tune_on_2x.png
@@ -81,6 +92,7 @@ if(_gravepitch_juce_dir)
     juce_add_plugin(GravePitchPlugin
         COMPANY_NAME "GravePitch"
         PRODUCT_NAME "GravePitch"
+        PLIST_TO_MERGE "${_gravepitch_plist_to_merge}"
         ICON_BIG "${_gravepitch_icon_big}"
         ICON_SMALL "${_gravepitch_icon_small}"
         PLUGIN_MANUFACTURER_CODE Gptc
@@ -92,7 +104,7 @@ if(_gravepitch_juce_dir)
         IS_MIDI_EFFECT FALSE
         EDITOR_WANTS_KEYBOARD_FOCUS FALSE
         MICROPHONE_PERMISSION_ENABLED TRUE
-        MICROPHONE_PERMISSION_TEXT "GravePitch 需要访问音频输入以检测吉他音高。"
+        MICROPHONE_PERMISSION_TEXT "GravePitch needs access to audio input to detect guitar pitch."
         COPY_PLUGIN_AFTER_BUILD FALSE
         VST3_CATEGORIES Fx Analyzer
     )
@@ -146,11 +158,25 @@ if(_gravepitch_juce_dir)
             tests/plugin_processor_tests.cpp
         )
         target_include_directories(gravepitch_plugin_processor_tests PRIVATE include src/juce)
-        target_link_libraries(gravepitch_plugin_processor_tests PRIVATE GravePitchPlugin juce::juce_audio_utils)
+        target_link_libraries(gravepitch_plugin_processor_tests
+            PRIVATE
+                GravePitchPlugin
+                GravePitchUiAssets
+                juce::juce_audio_utils
+        )
         add_test(NAME gravepitch_plugin_processor_tests COMMAND gravepitch_plugin_processor_tests)
     endif()
 
     if(APPLE)
+        juce_add_bundle_resources_directory(
+            GravePitchPlugin_Standalone
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/en.lproj"
+        )
+        juce_add_bundle_resources_directory(
+            GravePitchPlugin_Standalone
+            "${CMAKE_CURRENT_SOURCE_DIR}/resources/macos/zh-Hans.lproj"
+        )
+
         set_property(TARGET GravePitchPlugin_Standalone GravePitchPlugin_VST3
             APPEND PROPERTY LINK_DEPENDS
                 "${_gravepitch_icon_big}"

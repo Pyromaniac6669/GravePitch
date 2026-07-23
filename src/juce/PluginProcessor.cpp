@@ -5,6 +5,22 @@
 
 #include <algorithm>
 
+namespace {
+
+juce::String uiLanguageId(GravePitchUiLanguage language)
+{
+    return language == GravePitchUiLanguage::simplifiedChinese ? "zh-Hans" : "en";
+}
+
+GravePitchUiLanguage uiLanguageFromId(const juce::String& id)
+{
+    return id == "zh-Hans"
+        ? GravePitchUiLanguage::simplifiedChinese
+        : GravePitchUiLanguage::english;
+}
+
+} // namespace
+
 GravePitchAudioProcessor::GravePitchAudioProcessor()
     : AudioProcessor(BusesProperties()
         .withInput("Input", juce::AudioChannelSet::stereo(), true)
@@ -138,6 +154,7 @@ void GravePitchAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
     state.setProperty("selectedTuningIndex", selectedTuningIndex_, nullptr);
     state.setProperty("customTuning", customTuningState_, nullptr);
     state.setProperty("outputMuted", outputMuted_.load(std::memory_order_relaxed), nullptr);
+    state.setProperty("uiLanguage", uiLanguageId(uiLanguage_), nullptr);
 
     if (auto xml = state.createXml()) {
         copyXmlToBinary(*xml, destData);
@@ -161,6 +178,7 @@ void GravePitchAudioProcessor::setStateInformation(const void* data, int sizeInB
     a4Hz_ = std::clamp(static_cast<double>(state.getProperty("a4Hz", gravepitch::defaultA4Hz)), 432.0, 448.0);
     customTuningState_ = state.getProperty("customTuning", "").toString();
     outputMuted_.store(static_cast<bool>(state.getProperty("outputMuted", true)), std::memory_order_relaxed);
+    uiLanguage_ = uiLanguageFromId(state.getProperty("uiLanguage", "en").toString());
 
     if (customTuningState_.isNotEmpty()) {
         const auto custom = gravepitch::deserializeCustomTuning(customTuningState_.toStdString());
@@ -227,6 +245,12 @@ bool GravePitchAudioProcessor::outputMuted() const noexcept
     return outputMuted_.load(std::memory_order_relaxed);
 }
 
+GravePitchUiLanguage GravePitchAudioProcessor::uiLanguage() const
+{
+    std::lock_guard<std::mutex> lock(nonAudioStateMutex_);
+    return uiLanguage_;
+}
+
 void GravePitchAudioProcessor::setTuningIndex(int index)
 {
     std::lock_guard<std::mutex> lock(nonAudioStateMutex_);
@@ -272,6 +296,12 @@ void GravePitchAudioProcessor::setCustomTuning(const std::vector<juce::String>& 
 void GravePitchAudioProcessor::setOutputMuted(bool shouldMute) noexcept
 {
     outputMuted_.store(shouldMute, std::memory_order_relaxed);
+}
+
+void GravePitchAudioProcessor::setUiLanguage(GravePitchUiLanguage language)
+{
+    std::lock_guard<std::mutex> lock(nonAudioStateMutex_);
+    uiLanguage_ = language;
 }
 
 void GravePitchAudioProcessor::rebuildEngineLocked()
