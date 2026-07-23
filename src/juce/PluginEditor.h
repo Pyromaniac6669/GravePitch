@@ -34,6 +34,11 @@ public:
     void paint(juce::Graphics&) override { }
 };
 
+class MoreMenuButton final : public juce::TextButton {
+public:
+    void paintButton(juce::Graphics& graphics, bool isMouseOver, bool isButtonDown) override;
+};
+
 class GravePitchLookAndFeel final : public juce::LookAndFeel_V4 {
 public:
     void setUiTypefaces(juce::Typeface::Ptr primary, juce::Typeface::Ptr fallback);
@@ -65,9 +70,9 @@ private:
     void drawPitchReadout(juce::Graphics& graphics) const;
     void drawTuningScale(juce::Graphics& graphics) const;
     void drawMovingIndicator(juce::Graphics& graphics) const;
-    void drawLanguageSwitch(juce::Graphics& graphics) const;
     void drawDrawerOverlay(juce::Graphics& graphics) const;
     void drawDrawerValues(juce::Graphics& graphics) const;
+    void showLanguageMenu();
     void refreshTuningList(bool refreshStringEditors = true);
     void applyCustomTuningFromEditors();
     void setDrawerOpen(bool shouldOpen);
@@ -92,8 +97,7 @@ private:
     juce::LocalisedStrings simplifiedChineseStrings_;
     GravePitchUiLanguage uiLanguage_ = GravePitchUiLanguage::english;
 
-    InvisibleTextButton englishLanguageButton_;
-    InvisibleTextButton chineseLanguageButton_;
+    MoreMenuButton languageMenuButton_;
     MuteToggleButton muteButton_;
     InTuneIndicator inTuneIndicator_;
     InvisibleTextButton tuningDrawerButton_;
