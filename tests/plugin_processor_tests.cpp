@@ -24,6 +24,11 @@ bool expectNear(float actual, float expected, const char* message)
     return expectTrue(std::abs(actual - expected) < 0.000001f, message);
 }
 
+float colourLuminance(juce::Colour colour)
+{
+    return 0.2126f * colour.getRed() + 0.7152f * colour.getGreen() + 0.0722f * colour.getBlue();
+}
+
 float averageLuminance(const juce::Image& image, juce::Rectangle<int> area)
 {
     double luminance = 0.0;
@@ -31,10 +36,7 @@ float averageLuminance(const juce::Image& image, juce::Rectangle<int> area)
 
     for (int y = area.getY(); y < area.getBottom(); ++y) {
         for (int x = area.getX(); x < area.getRight(); ++x) {
-            const auto colour = image.getPixelAt(x, y);
-            luminance += 0.2126 * colour.getRed()
-                + 0.7152 * colour.getGreen()
-                + 0.0722 * colour.getBlue();
+            luminance += colourLuminance(image.getPixelAt(x, y));
             ++pixelCount;
         }
     }
@@ -401,9 +403,35 @@ bool testAboutOverlayContentAndBehaviour()
         aboutImage, juce::Rectangle<int>(422, 141, 3, 14));
     const auto cardBackgroundLuminance = averageLuminance(
         aboutImage, juce::Rectangle<int>(408, 141, 3, 14));
+    const auto hardBackingDifference = std::abs(
+        iconBackingLuminance - cardBackgroundLuminance);
     ok &= expectTrue(
-        iconBackingLuminance >= cardBackgroundLuminance + 12.0f,
-        "about icon has enough backing contrast against the dark card");
+        hardBackingDifference < 8.0f,
+        "about icon avoids a hard geometric backing");
+
+    const auto scaledAboutIcon = aboutIcon.rescaled(
+        72, 72, juce::Graphics::highResamplingQuality);
+    double midtoneLift = 0.0;
+    int opaquePixelCount = 0;
+    for (int y = 0; y < scaledAboutIcon.getHeight(); ++y) {
+        for (int x = 0; x < scaledAboutIcon.getWidth(); ++x) {
+            const auto sourceColour = scaledAboutIcon.getPixelAt(x, y);
+            if (sourceColour.getAlpha() < 192) {
+                continue;
+            }
+
+            const auto renderedColour = aboutImage.getPixelAt(424 + x, 112 + y);
+            midtoneLift += colourLuminance(renderedColour)
+                - colourLuminance(sourceColour);
+            ++opaquePixelCount;
+        }
+    }
+    const auto averageMidtoneLift = opaquePixelCount > 0
+        ? static_cast<float>(midtoneLift / opaquePixelCount)
+        : 0.0f;
+    ok &= expectTrue(
+        averageMidtoneLift >= 15.0f,
+        "about icon midtones are lifted without replacing its artwork");
 
     const auto outsideClickTime = juce::Time::getCurrentTime();
     const juce::MouseEvent outsideClick(
