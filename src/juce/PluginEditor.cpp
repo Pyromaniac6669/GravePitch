@@ -160,6 +160,245 @@ void MoreMenuButton::paintButton(juce::Graphics& graphics, bool isMouseOver, boo
     }
 }
 
+AboutOverlay::AboutOverlay(
+    juce::Image appIcon,
+    juce::Typeface::Ptr uiTypeface,
+    juce::Typeface::Ptr cjkTypeface,
+    const juce::LocalisedStrings& simplifiedChineseStrings)
+    : appIcon_(std::move(appIcon))
+    , uiTypeface_(std::move(uiTypeface))
+    , cjkTypeface_(std::move(cjkTypeface))
+    , simplifiedChineseStrings_(simplifiedChineseStrings)
+{
+    setComponentID("aboutOverlay");
+    setInterceptsMouseClicks(true, true);
+    setWantsKeyboardFocus(true);
+    setVisible(false);
+
+    configureLabel(projectNameLabel_, "aboutTitle", juce::Colour(0xffd9d5cf));
+    configureLabel(versionLabel_, "aboutVersion", juce::Colour(0xffbdb8b1));
+    configureLabel(descriptionLabel_, "aboutDescription", juce::Colour(0xffcbc7c0));
+    configureLabel(copyrightLabel_, "aboutCopyright", juce::Colour(0xffaaa6a0));
+    configureLabel(licenseLabel_, "aboutLicense", juce::Colour(0xffaaa6a0));
+
+    projectNameLabel_.setFont(titleFont(32.0f).withExtraKerningFactor(0.08f));
+    versionLabel_.setFont(bodyFont(16.0f));
+    descriptionLabel_.setFont(bodyFont(14.5f));
+    descriptionLabel_.setMinimumHorizontalScale(0.86f);
+    copyrightLabel_.setFont(bodyFont(14.5f));
+    licenseLabel_.setFont(bodyFont(14.5f));
+
+    githubButton_.setComponentID("aboutGithubButton");
+    githubButton_.setTitle("Open GravePitch on GitHub");
+    githubButton_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    githubButton_.setWantsKeyboardFocus(false);
+    githubButton_.onClick = [] {
+        juce::URL(AboutOverlay::githubUrl()).launchInDefaultBrowser();
+    };
+    addAndMakeVisible(githubButton_);
+
+    closeButton_.setComponentID("aboutCloseButton");
+    closeButton_.setTitle(juce::String::fromUTF8("Close / 关闭"));
+    closeButton_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    closeButton_.setWantsKeyboardFocus(false);
+    closeButton_.onClick = [this] { hideOverlay(); };
+    addAndMakeVisible(closeButton_);
+
+    setLanguage(GravePitchUiLanguage::english);
+}
+
+juce::Font AboutOverlay::titleFont(float height) const
+{
+    return fontWithFallback(uiTypeface_, cjkTypeface_, height);
+}
+
+juce::Font AboutOverlay::bodyFont(float height) const
+{
+    auto font = juce::Font(juce::FontOptions(height));
+    if (cjkTypeface_ != nullptr) {
+        font.setPreferredFallbackFamilies({cjkTypeface_->getName()});
+    }
+
+    return font;
+}
+
+void AboutOverlay::configureLabel(
+    juce::Label& label,
+    const juce::String& componentId,
+    juce::Colour colour)
+{
+    label.setComponentID(componentId);
+    label.setJustificationType(juce::Justification::centred);
+    label.setBorderSize({});
+    label.setColour(juce::Label::textColourId, colour);
+    label.setColour(juce::Label::backgroundColourId, juce::Colours::transparentBlack);
+    label.setColour(juce::Label::outlineColourId, juce::Colours::transparentBlack);
+    label.setInterceptsMouseClicks(false, false);
+    addAndMakeVisible(label);
+}
+
+void AboutOverlay::drawButton(
+    juce::Graphics& graphics,
+    const InvisibleTextButton& button,
+    bool accented) const
+{
+    const auto bounds = button.getBounds().toFloat();
+    graphics.setColour(juce::Colour(0xff080909).withAlpha(0.72f));
+    graphics.fillRoundedRectangle(bounds, 3.0f);
+    graphics.setColour(
+        (accented ? accentColour : juce::Colour(0xff8c8881)).withAlpha(accented ? 0.94f : 0.82f));
+    graphics.drawRoundedRectangle(bounds.reduced(0.5f), 3.0f, 1.0f);
+    graphics.setColour(juce::Colours::white.withAlpha(0.035f));
+    graphics.drawLine(bounds.getX() + 3.0f, bounds.getY() + 1.5f,
+        bounds.getRight() - 3.0f, bounds.getY() + 1.5f, 0.7f);
+
+    graphics.setFont(titleFont(17.0f).withExtraKerningFactor(0.06f));
+    graphics.setColour(accented ? accentColour : juce::Colour(0xffd0ccc5));
+    graphics.drawFittedText(
+        button.getButtonText(), button.getBounds(), juce::Justification::centred, 1);
+}
+
+void AboutOverlay::paint(juce::Graphics& graphics)
+{
+    graphics.setColour(juce::Colours::black.withAlpha(0.78f));
+    graphics.fillRect(getLocalBounds());
+
+    const auto card = cardBounds().toFloat();
+    graphics.setColour(juce::Colours::black.withAlpha(0.72f));
+    graphics.fillRoundedRectangle(card.expanded(12.0f).translated(0.0f, 7.0f), 8.0f);
+    graphics.setGradientFill(juce::ColourGradient(
+        juce::Colour(0xff1b1b19), card.getCentreX(), card.getY(),
+        juce::Colour(0xff0d0e0e), card.getCentreX(), card.getBottom(), false));
+    graphics.fillRoundedRectangle(card, 5.0f);
+
+    {
+        juce::Graphics::ScopedSaveState textureState(graphics);
+        graphics.reduceClipRegion(cardBounds().reduced(2));
+        graphics.setColour(juce::Colours::white.withAlpha(0.018f));
+        for (int index = 0; index < 32; ++index) {
+            const auto y = card.getY() + 7.0f + static_cast<float>((index * 29) % 284);
+            const auto x = card.getX() + 6.0f + static_cast<float>((index * 53) % 455);
+            graphics.drawLine(x, y, x + 18.0f + static_cast<float>(index % 11), y + 0.7f, 0.5f);
+        }
+    }
+
+    graphics.setColour(juce::Colour(0xff88827a).withAlpha(0.72f));
+    graphics.drawRoundedRectangle(card.reduced(0.5f), 5.0f, 1.0f);
+    graphics.setColour(juce::Colours::white.withAlpha(0.10f));
+    graphics.drawRoundedRectangle(card.reduced(2.0f), 4.0f, 0.7f);
+
+    graphics.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+    graphics.drawImage(appIcon_, juce::Rectangle<float>(
+        card.getCentreX() - 36.0f, card.getY() + 2.0f, 72.0f, 72.0f));
+
+    graphics.setColour(juce::Colour(0xff89847d).withAlpha(0.64f));
+    graphics.drawLine(card.getX() + 24.0f, card.getY() + 231.0f,
+        card.getRight() - 24.0f, card.getY() + 231.0f, 1.0f);
+    drawButton(graphics, githubButton_, false);
+    drawButton(graphics, closeButton_, true);
+}
+
+void AboutOverlay::resized()
+{
+    const auto card = cardBounds();
+    projectNameLabel_.setBounds(card.getX() + 24, card.getY() + 73, card.getWidth() - 48, 42);
+    versionLabel_.setBounds(card.getX() + 24, card.getY() + 112, card.getWidth() - 48, 25);
+    descriptionLabel_.setBounds(card.getX() + 34, card.getY() + 136, card.getWidth() - 68, 44);
+    copyrightLabel_.setBounds(card.getX() + 24, card.getY() + 180, card.getWidth() - 48, 21);
+    licenseLabel_.setBounds(card.getX() + 24, card.getY() + 201, card.getWidth() - 48, 21);
+    githubButton_.setBounds(card.getX() + 44, card.getY() + 248, 176, 36);
+    closeButton_.setBounds(card.getX() + 260, card.getY() + 248, 176, 36);
+}
+
+void AboutOverlay::mouseDown(const juce::MouseEvent&)
+{
+    if (isShowing() || isOnDesktop()) {
+        grabKeyboardFocus();
+    }
+}
+
+bool AboutOverlay::keyPressed(const juce::KeyPress& key)
+{
+    if (key == juce::KeyPress::escapeKey) {
+        hideOverlay();
+        return true;
+    }
+
+    return false;
+}
+
+void AboutOverlay::setLanguage(GravePitchUiLanguage language)
+{
+    const auto chinese = language == GravePitchUiLanguage::simplifiedChinese;
+    const auto translate = [this, chinese](const juce::String& englishText) {
+        return chinese ? simplifiedChineseStrings_.translate(englishText) : englishText;
+    };
+    projectNameLabel_.setText("GRAVEPITCH", juce::dontSendNotification);
+    versionLabel_.setText(
+        translate("Version ") + JucePlugin_VersionString,
+        juce::dontSendNotification);
+    descriptionLabel_.setText(
+        translate(
+            "A monophonic guitar tuner for guitarists, available as a standalone app and VST3 plugin."),
+        juce::dontSendNotification);
+    copyrightLabel_.setText(
+        juce::String::fromUTF8("© 2026 Pyromaniac6669"), juce::dontSendNotification);
+    licenseLabel_.setText("AGPL-3.0-or-later", juce::dontSendNotification);
+    githubButton_.setButtonText("GitHub");
+    closeButton_.setButtonText(translate("CLOSE"));
+    repaint();
+}
+
+void AboutOverlay::showOverlay()
+{
+    setVisible(true);
+    toFront(false);
+    if (isShowing() || isOnDesktop()) {
+        grabKeyboardFocus();
+    }
+    repaint();
+}
+
+void AboutOverlay::hideOverlay()
+{
+    setVisible(false);
+}
+
+juce::Rectangle<int> AboutOverlay::cardBounds() const noexcept
+{
+    return getLocalBounds().withSizeKeepingCentre(480, 300);
+}
+
+juce::String AboutOverlay::projectNameText() const
+{
+    return projectNameLabel_.getText();
+}
+
+juce::String AboutOverlay::versionText() const
+{
+    return versionLabel_.getText();
+}
+
+juce::String AboutOverlay::descriptionText() const
+{
+    return descriptionLabel_.getText();
+}
+
+juce::String AboutOverlay::copyrightText() const
+{
+    return copyrightLabel_.getText();
+}
+
+juce::String AboutOverlay::licenseText() const
+{
+    return licenseLabel_.getText();
+}
+
+juce::String AboutOverlay::githubUrl()
+{
+    return "https://github.com/Pyromaniac6669/GravePitch";
+}
+
 GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioProcessor& audioProcessor)
     : AudioProcessorEditor(&audioProcessor)
     , processor_(audioProcessor)
@@ -186,12 +425,12 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     drawerLookAndFeel_.setColour(juce::PopupMenu::highlightedBackgroundColourId, juce::Colour(0xff352a1e));
     drawerLookAndFeel_.setColour(juce::PopupMenu::highlightedTextColourId, accentColour);
 
-    languageMenuButton_.setComponentID("languageMenuButton");
-    languageMenuButton_.setTitle(juce::String::fromUTF8("Language / 语言"));
-    languageMenuButton_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
-    languageMenuButton_.setWantsKeyboardFocus(false);
-    languageMenuButton_.onClick = [this] { showLanguageMenu(); };
-    addAndMakeVisible(languageMenuButton_);
+    moreMenuButton_.setComponentID("moreMenuButton");
+    moreMenuButton_.setTitle(juce::String::fromUTF8("More / 更多"));
+    moreMenuButton_.setMouseCursor(juce::MouseCursor::PointingHandCursor);
+    moreMenuButton_.setWantsKeyboardFocus(false);
+    moreMenuButton_.onClick = [this] { showMoreMenu(); };
+    addAndMakeVisible(moreMenuButton_);
 
     muteButton_.setToggleState(processor_.outputMuted(), juce::dontSendNotification);
     muteButton_.onClick = [this] {
@@ -266,6 +505,14 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     doneButton_.onClick = [this] { setDrawerOpen(false); };
 
     uiLanguage_ = processor_.uiLanguage();
+    aboutOverlay_ = std::make_unique<AboutOverlay>(
+        imageFromMemory(
+            BinaryData::gravepitch_app_icon_2x_png,
+            BinaryData::gravepitch_app_icon_2x_pngSize),
+        uiTypeface_,
+        cjkTypeface_,
+        simplifiedChineseStrings_);
+    addChildComponent(*aboutOverlay_);
     updateLocalizedComponentText();
     refreshTuningList();
     setDrawerOpen(false);
@@ -476,7 +723,7 @@ void GravePitchAudioProcessorEditor::drawMovingIndicator(juce::Graphics& graphic
     graphics.fillPath(marker);
 }
 
-void GravePitchAudioProcessorEditor::showLanguageMenu()
+void GravePitchAudioProcessorEditor::showMoreMenu()
 {
     const auto englishSelected = uiLanguage_ == GravePitchUiLanguage::english;
     juce::PopupMenu menu;
@@ -484,15 +731,22 @@ void GravePitchAudioProcessorEditor::showLanguageMenu()
     menu.addSectionHeader(juce::String::fromUTF8("LANGUAGE / 语言"));
     menu.addItem(1, "English", true, englishSelected);
     menu.addItem(2, juce::String::fromUTF8("简体中文"), true, !englishSelected);
+    menu.addSeparator();
+    menu.addItem(3, translate("About"));
 
     menu.showMenuAsync(
         juce::PopupMenu::Options()
-            .withTargetComponent(languageMenuButton_)
+            .withTargetComponent(moreMenuButton_)
             .withDeletionCheck(*this)
             .withMinimumWidth(176)
             .withMaximumNumColumns(1),
         [safeThis = juce::Component::SafePointer<GravePitchAudioProcessorEditor>(this)](int result) {
             if (safeThis == nullptr || result == 0) {
+                return;
+            }
+
+            if (result == 3) {
+                safeThis->aboutOverlay_->showOverlay();
                 return;
             }
 
@@ -644,7 +898,7 @@ void GravePitchAudioProcessorEditor::resized()
 {
     muteButton_.setBounds(688, 13, 125, 42);
     inTuneIndicator_.setBounds(822, 7, 64, 62);
-    languageMenuButton_.setBounds(887, 17, 25, 32);
+    moreMenuButton_.setBounds(887, 17, 25, 32);
 
     tuningDrawerButton_.setBounds(310, 437, 300, 39);
 
@@ -662,6 +916,9 @@ void GravePitchAudioProcessorEditor::resized()
 
     saveCustomButton_.setBounds(294, 463, 140, 31);
     doneButton_.setBounds(459, 463, 130, 31);
+    if (aboutOverlay_ != nullptr) {
+        aboutOverlay_->setBounds(getLocalBounds());
+    }
 }
 
 void GravePitchAudioProcessorEditor::mouseDown(const juce::MouseEvent& event)
@@ -765,6 +1022,9 @@ void GravePitchAudioProcessorEditor::updateLocalizedComponentText()
 {
     saveCustomButton_.setButtonText(translate("SAVE AS CUSTOM"));
     doneButton_.setButtonText(translate("DONE"));
+    if (aboutOverlay_ != nullptr) {
+        aboutOverlay_->setLanguage(uiLanguage_);
+    }
     updateTuningButtonText();
 }
 
