@@ -81,6 +81,7 @@ if(_gravepitch_juce_dir)
             resources/fonts/GravePitchCjkSubset.ttf
             resources/fonts/OswaldVariable.ttf
             resources/i18n/zh-Hans.txt
+            resources/ui/gravepitch_app_icon_2x.png
             resources/ui/gravepitch_logo_2x.png
             resources/ui/in_tune_off_2x.png
             resources/ui/in_tune_on_2x.png

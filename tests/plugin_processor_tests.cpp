@@ -204,7 +204,7 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
         return false;
     }
 
-    juce::TextButton* languageMenuButton = nullptr;
+    juce::TextButton* moreMenuButton = nullptr;
     juce::TextButton* tuningDrawerButton = nullptr;
     juce::TextButton* saveButton = nullptr;
     juce::ComboBox* draftStringEditor = nullptr;
@@ -216,8 +216,8 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
     for (int index = 0; index < editor->getNumChildComponents(); ++index) {
         auto* component = editor->getChildComponent(index);
         if (auto* button = dynamic_cast<juce::TextButton*>(component)) {
-            if (button->getComponentID() == "languageMenuButton") {
-                languageMenuButton = button;
+            if (button->getComponentID() == "moreMenuButton") {
+                moreMenuButton = button;
             } else if (button->getComponentID() == "tuningDrawerButton") {
                 tuningDrawerButton = button;
                 foundLocalizedDrawerButton = button->getButtonText().contains(juce::String::fromUTF8("自定义"))
@@ -241,14 +241,14 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
         }
     }
 
-    ok &= expectTrue(languageMenuButton != nullptr,
-        "editor exposes the language overflow menu");
-    ok &= expectTrue(languageMenuButton != nullptr
-            && languageMenuButton->getBounds() == juce::Rectangle<int>(887, 17, 25, 32),
-        "language menu uses the unobtrusive top-right bounds");
-    ok &= expectTrue(languageMenuButton != nullptr
-            && languageMenuButton->getTitle() == juce::String::fromUTF8("Language / 语言"),
-        "language menu keeps a bilingual accessible title");
+    ok &= expectTrue(moreMenuButton != nullptr,
+        "editor exposes the general overflow menu");
+    ok &= expectTrue(moreMenuButton != nullptr
+            && moreMenuButton->getBounds() == juce::Rectangle<int>(887, 17, 25, 32),
+        "more menu keeps the unobtrusive top-right bounds");
+    ok &= expectTrue(moreMenuButton != nullptr
+            && moreMenuButton->getTitle() == juce::String::fromUTF8("More / 更多"),
+        "more menu uses a bilingual accessible title");
     ok &= expectTrue(foundLocalizedDrawerButton, "collapsed tuning control localizes only its generic suffix");
     ok &= expectTrue(foundLocalizedSaveButton, "save custom action is localized");
     ok &= expectTrue(foundLocalizedDoneButton, "done action is localized");
@@ -283,6 +283,231 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
     return ok;
 }
 
+bool testAboutOverlayContentAndBehaviour()
+{
+    GravePitchAudioProcessor processor;
+    processor.setOutputMuted(false);
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    bool ok = expectTrue(editor != nullptr, "editor is created for about overlay inspection");
+    if (editor == nullptr) {
+        return false;
+    }
+
+    auto* aboutOverlay = dynamic_cast<AboutOverlay*>(editor->findChildWithID("aboutOverlay"));
+    auto* tuningDrawerButton = dynamic_cast<juce::TextButton*>(
+        editor->findChildWithID("tuningDrawerButton"));
+    auto* saveButton = dynamic_cast<juce::TextButton*>(
+        editor->findChildWithID("saveCustomButton"));
+    juce::ComboBox* draftStringEditor = nullptr;
+    for (auto* child : editor->getChildren()) {
+        if (auto* comboBox = dynamic_cast<juce::ComboBox*>(child);
+            comboBox != nullptr && comboBox->getNumItems() == 53) {
+            draftStringEditor = comboBox;
+            break;
+        }
+    }
+
+    ok &= expectTrue(aboutOverlay != nullptr, "editor owns a full-size about overlay");
+    ok &= expectTrue(tuningDrawerButton != nullptr, "editor exposes the tuning drawer control");
+    ok &= expectTrue(saveButton != nullptr, "editor exposes the drawer save action");
+    ok &= expectTrue(draftStringEditor != nullptr, "editor exposes a draft string editor");
+    if (aboutOverlay == nullptr) {
+        return false;
+    }
+
+    ok &= expectTrue(!aboutOverlay->isVisible(), "about overlay is hidden by default");
+    ok &= expectTrue(aboutOverlay->getBounds() == editor->getLocalBounds(),
+        "about overlay fills the fixed editor");
+    ok &= expectTrue(aboutOverlay->cardBounds() == juce::Rectangle<int>(220, 110, 480, 300),
+        "about card uses the fixed centred geometry");
+    bool interceptsOverlayClicks = false;
+    bool allowsChildClicks = false;
+    aboutOverlay->getInterceptsMouseClicks(interceptsOverlayClicks, allowsChildClicks);
+    ok &= expectTrue(interceptsOverlayClicks && allowsChildClicks,
+        "about overlay intercepts the editor while keeping its actions clickable");
+    ok &= expectTrue(editor->getChildComponent(editor->getNumChildComponents() - 1) == aboutOverlay,
+        "about overlay remains above every editor control");
+    const auto aboutIcon = juce::ImageCache::getFromMemory(
+        BinaryData::gravepitch_app_icon_2x_png,
+        BinaryData::gravepitch_app_icon_2x_pngSize);
+    ok &= expectTrue(aboutIcon.getWidth() == 128 && aboutIcon.getHeight() == 128,
+        "about overlay uses the dedicated 128-pixel 2x app icon");
+
+    const juce::LocalisedStrings testTranslations(
+        juce::String::fromUTF8(
+            reinterpret_cast<const char*>(BinaryData::zhHans_txt),
+            BinaryData::zhHans_txtSize),
+        false);
+    const auto oswaldTypeface = juce::Typeface::createSystemTypefaceFor(
+        BinaryData::OswaldVariable_ttf,
+        static_cast<std::size_t>(BinaryData::OswaldVariable_ttfSize));
+    const auto cjkTypeface = juce::Typeface::createSystemTypefaceFor(
+        BinaryData::GravePitchCjkSubset_ttf,
+        static_cast<std::size_t>(BinaryData::GravePitchCjkSubset_ttfSize));
+    juce::Image transparentIcon(
+        juce::Image::ARGB, aboutIcon.getWidth(), aboutIcon.getHeight(), true);
+
+    AboutOverlay directIconOverlay(
+        aboutIcon, oswaldTypeface, cjkTypeface, testTranslations);
+    AboutOverlay transparentIconOverlay(
+        transparentIcon, oswaldTypeface, cjkTypeface, testTranslations);
+    directIconOverlay.setBounds(0, 0, editor->getWidth(), editor->getHeight());
+    transparentIconOverlay.setBounds(0, 0, editor->getWidth(), editor->getHeight());
+    directIconOverlay.setVisible(true);
+    transparentIconOverlay.setVisible(true);
+
+    const auto renderOverlay = [
+        width = editor->getWidth(),
+        height = editor->getHeight()](AboutOverlay& overlay) {
+        juce::Image image(juce::Image::ARGB, width, height, true);
+        juce::Graphics graphics(image);
+        overlay.paintEntireComponent(graphics, true);
+        return image;
+    };
+
+    const auto directIconImage = renderOverlay(directIconOverlay);
+    auto expectedDirectIconImage = renderOverlay(transparentIconOverlay);
+    const auto iconBounds = juce::Rectangle<float>(
+        aboutOverlay->cardBounds().getCentreX() - 36.0f,
+        aboutOverlay->cardBounds().getY() + 2.0f, 72.0f, 72.0f);
+    {
+        juce::Graphics expectedGraphics(expectedDirectIconImage);
+        expectedGraphics.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+        expectedGraphics.drawImage(aboutIcon, iconBounds);
+    }
+
+    const auto comparisonBounds = iconBounds.expanded(8.0f)
+        .withTrimmedBottom(12.0f).getSmallestIntegerContainer();
+    int mismatchedPixels = 0;
+    for (int y = comparisonBounds.getY(); y < comparisonBounds.getBottom(); ++y) {
+        for (int x = comparisonBounds.getX(); x < comparisonBounds.getRight(); ++x) {
+            mismatchedPixels += directIconImage.getPixelAt(x, y)
+                    != expectedDirectIconImage.getPixelAt(x, y)
+                ? 1 : 0;
+        }
+    }
+    ok &= expectTrue(
+        mismatchedPixels == 0,
+        "about overlay draws the original icon once without visual effects");
+
+    ok &= expectTrue(aboutOverlay->projectNameText() == "GRAVEPITCH",
+        "about overlay keeps the project name in English");
+    ok &= expectTrue(aboutOverlay->versionText() == "Version " + juce::String(JucePlugin_VersionString),
+        "about overlay reads the build version dynamically");
+    ok &= expectTrue(
+        aboutOverlay->descriptionText()
+            == "A monophonic guitar tuner for guitarists, available as a standalone app and VST3 plugin.",
+        "about overlay shows the approved English description");
+    ok &= expectTrue(aboutOverlay->copyrightText()
+            == juce::String::fromUTF8("© 2026 Pyromaniac6669"),
+        "about overlay shows the approved copyright");
+    ok &= expectTrue(aboutOverlay->licenseText() == "AGPL-3.0-or-later",
+        "about overlay shows the license identifier");
+    ok &= expectTrue(AboutOverlay::githubUrl()
+            == "https://github.com/Pyromaniac6669/GravePitch",
+        "about overlay uses the canonical GitHub URL");
+
+    auto* githubButton = dynamic_cast<juce::TextButton*>(
+        aboutOverlay->findChildWithID("aboutGithubButton"));
+    auto* closeButton = dynamic_cast<juce::TextButton*>(
+        aboutOverlay->findChildWithID("aboutCloseButton"));
+    ok &= expectTrue(githubButton != nullptr && githubButton->getButtonText() == "GitHub",
+        "about overlay exposes the GitHub action");
+    ok &= expectTrue(githubButton != nullptr && githubButton->onClick != nullptr,
+        "GitHub action is wired");
+    ok &= expectTrue(closeButton != nullptr && closeButton->getButtonText() == "CLOSE",
+        "English about overlay exposes the close action");
+
+    if (tuningDrawerButton != nullptr && tuningDrawerButton->onClick != nullptr) {
+        tuningDrawerButton->onClick();
+    }
+    if (draftStringEditor != nullptr) {
+        draftStringEditor->setSelectedId(1, juce::sendNotificationSync);
+    }
+    const auto draftBeforeOpen = draftStringEditor != nullptr
+        ? draftStringEditor->getText()
+        : juce::String();
+    const auto muteBeforeOpen = processor.outputMuted();
+    const auto languageBeforeOpen = processor.uiLanguage();
+
+    aboutOverlay->showOverlay();
+    ok &= expectTrue(aboutOverlay->isVisible(), "about overlay can be opened");
+
+    const auto outsideClickTime = juce::Time::getCurrentTime();
+    const juce::MouseEvent outsideClick(
+        juce::Desktop::getInstance().getMainMouseSource(),
+        {10.0f, 10.0f},
+        juce::ModifierKeys(juce::ModifierKeys::leftButtonModifier),
+        1.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        0.0f,
+        aboutOverlay,
+        aboutOverlay,
+        outsideClickTime,
+        {10.0f, 10.0f},
+        outsideClickTime,
+        1,
+        false);
+    aboutOverlay->mouseDown(outsideClick);
+    ok &= expectTrue(aboutOverlay->isVisible(),
+        "clicking outside the about card does not close it");
+    ok &= expectTrue(saveButton != nullptr && saveButton->isVisible(),
+        "opening about keeps the tuning drawer state");
+    ok &= expectTrue(draftStringEditor != nullptr
+            && draftStringEditor->getText() == draftBeforeOpen,
+        "opening about preserves the unsaved tuning draft");
+    ok &= expectTrue(processor.outputMuted() == muteBeforeOpen,
+        "opening about preserves MUTE");
+    ok &= expectTrue(processor.uiLanguage() == languageBeforeOpen,
+        "opening about does not write language state");
+
+    if (closeButton != nullptr && closeButton->onClick != nullptr) {
+        closeButton->onClick();
+    }
+    ok &= expectTrue(!aboutOverlay->isVisible(), "close button hides the about overlay");
+    ok &= expectTrue(saveButton != nullptr && saveButton->isVisible(),
+        "closing about restores the unchanged tuning drawer");
+    ok &= expectTrue(draftStringEditor != nullptr
+            && draftStringEditor->getText() == draftBeforeOpen,
+        "closing about preserves the unsaved tuning draft");
+
+    aboutOverlay->showOverlay();
+    ok &= expectTrue(
+        aboutOverlay->keyPressed(juce::KeyPress(juce::KeyPress::escapeKey)),
+        "about overlay handles Escape");
+    ok &= expectTrue(!aboutOverlay->isVisible(), "Escape hides the about overlay");
+
+    aboutOverlay->showOverlay();
+    processor.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
+    juce::Thread::sleep(40);
+    juce::Timer::callPendingTimersSynchronously();
+    ok &= expectTrue(aboutOverlay->isVisible(),
+        "language switching keeps the about overlay open");
+    ok &= expectTrue(aboutOverlay->projectNameText() == "GRAVEPITCH",
+        "Chinese about overlay keeps the project name in English");
+    ok &= expectTrue(
+        aboutOverlay->versionText()
+            == juce::String::fromUTF8("版本 ") + juce::String(JucePlugin_VersionString),
+        "Chinese about overlay localizes the dynamic version label");
+    ok &= expectTrue(
+        aboutOverlay->descriptionText()
+            == juce::String::fromUTF8("一款面向吉他手的单音调音器，支持独立运行和 VST3。"),
+        "Chinese about overlay shows the approved description");
+    ok &= expectTrue(closeButton != nullptr
+            && closeButton->getButtonText() == juce::String::fromUTF8("关闭"),
+        "Chinese about overlay localizes the close action");
+    ok &= expectTrue(draftStringEditor != nullptr
+            && draftStringEditor->getText() == draftBeforeOpen,
+        "about language refresh preserves the unsaved tuning draft");
+    ok &= expectTrue(processor.outputMuted() == muteBeforeOpen,
+        "about language refresh preserves MUTE");
+    aboutOverlay->hideOverlay();
+
+    return ok;
+}
+
 bool testBundledCjkFontCoversTranslationCharacters()
 {
     const juce::LocalisedStrings translations(
@@ -299,6 +524,18 @@ bool testBundledCjkFontCoversTranslationCharacters()
         "translation resource contains the tuning configuration title");
     ok &= expectTrue(translations.translate("SAVE AS CUSTOM") == juce::String::fromUTF8("保存为自定义"),
         "translation resource contains the custom tuning action");
+    ok &= expectTrue(translations.translate("About") == juce::String::fromUTF8("关于"),
+        "translation resource contains the about menu action");
+    ok &= expectTrue(
+        translations.translate("Version ") == juce::String::fromUTF8("版本 "),
+        "translation resource contains the version prefix");
+    ok &= expectTrue(
+        translations.translate(
+            "A monophonic guitar tuner for guitarists, available as a standalone app and VST3 plugin.")
+            == juce::String::fromUTF8("一款面向吉他手的单音调音器，支持独立运行和 VST3。"),
+        "translation resource contains the about description");
+    ok &= expectTrue(translations.translate("CLOSE") == juce::String::fromUTF8("关闭"),
+        "translation resource contains the about close action");
     ok &= expectTrue(typeface != nullptr, "bundled CJK subset loads");
     if (typeface == nullptr) {
         return false;
@@ -661,6 +898,34 @@ bool renderEditorReference(
     return writeImage(expandedPath);
 }
 
+bool renderAboutReference(GravePitchUiLanguage language, const char* outputPath)
+{
+    GravePitchAudioProcessor processor;
+    processor.setTuningIndex(2);
+    processor.setUiLanguage(language);
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    if (editor == nullptr) {
+        return false;
+    }
+
+    auto* aboutOverlay = dynamic_cast<AboutOverlay*>(editor->findChildWithID("aboutOverlay"));
+    if (aboutOverlay == nullptr) {
+        return false;
+    }
+    aboutOverlay->showOverlay();
+
+    juce::Image warmupImage(juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
+    juce::Graphics warmupGraphics(warmupImage);
+    editor->paintEntireComponent(warmupGraphics, true);
+    juce::Thread::sleep(30);
+
+    juce::Image image(juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
+    juce::Graphics graphics(image);
+    editor->paintEntireComponent(graphics, true);
+    auto stream = juce::File(outputPath).createOutputStream();
+    return stream != nullptr && juce::PNGImageFormat().writeImageToStream(image, *stream);
+}
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -673,6 +938,7 @@ int main(int argc, char* argv[])
     ok &= testLegacyStateDefaultsToMuted();
     ok &= testUiLanguageStateRoundTripsAndDefaultsSafely();
     ok &= testSimplifiedChineseEditorTextAndInstanceIsolation();
+    ok &= testAboutOverlayContentAndBehaviour();
     ok &= testBundledCjkFontCoversTranslationCharacters();
     ok &= testPopupMenusKeepPreLocalizationFontMetrics();
     ok &= testEditorRendersAtFixedSize();
@@ -684,13 +950,21 @@ int main(int argc, char* argv[])
     ok &= testDrawerDoesNotRelayoutMainInterface();
     ok &= testInTuneIndicatorState();
 
-    if (ok && argc == 5) {
+    if (ok && (argc == 5 || argc == 7)) {
         ok &= expectTrue(
             renderEditorReference(GravePitchUiLanguage::english, argv[1], argv[2]),
             "English editor reference images are written");
         ok &= expectTrue(
             renderEditorReference(GravePitchUiLanguage::simplifiedChinese, argv[3], argv[4]),
             "simplified Chinese editor reference images are written");
+        if (argc == 7) {
+            ok &= expectTrue(
+                renderAboutReference(GravePitchUiLanguage::english, argv[5]),
+                "English about reference image is written");
+            ok &= expectTrue(
+                renderAboutReference(GravePitchUiLanguage::simplifiedChinese, argv[6]),
+                "simplified Chinese about reference image is written");
+        }
     }
 
     if (!ok) {

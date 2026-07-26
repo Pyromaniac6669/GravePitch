@@ -10,3 +10,7 @@ countries: cn sg
 "SAVE AS CUSTOM" = "保存为自定义"
 "DONE" = "完成"
 "Custom" = "自定义"
+"About" = "关于"
+"Version " = "版本 "
+"A monophonic guitar tuner for guitarists, available as a standalone app and VST3 plugin." = "一款面向吉他手的单音调音器，支持独立运行和 VST3。"
+"CLOSE" = "关闭"

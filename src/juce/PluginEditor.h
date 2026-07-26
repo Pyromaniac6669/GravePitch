@@ -5,6 +5,7 @@
 #include <juce_gui_extra/juce_gui_extra.h>
 
 #include <array>
+#include <memory>
 
 class MuteToggleButton final : public juce::ToggleButton {
 public:
@@ -51,6 +52,57 @@ private:
     juce::Typeface::Ptr fallbackTypeface_;
 };
 
+class AboutOverlay final : public juce::Component {
+public:
+    AboutOverlay(
+        juce::Image appIcon,
+        juce::Typeface::Ptr uiTypeface,
+        juce::Typeface::Ptr cjkTypeface,
+        const juce::LocalisedStrings& simplifiedChineseStrings);
+
+    void paint(juce::Graphics& graphics) override;
+    void resized() override;
+    void mouseDown(const juce::MouseEvent&) override;
+    bool keyPressed(const juce::KeyPress& key) override;
+    void setLanguage(GravePitchUiLanguage language);
+    void showOverlay();
+    void hideOverlay();
+
+    juce::Rectangle<int> cardBounds() const noexcept;
+    juce::String projectNameText() const;
+    juce::String versionText() const;
+    juce::String descriptionText() const;
+    juce::String copyrightText() const;
+    juce::String licenseText() const;
+    static juce::String githubUrl();
+
+private:
+    juce::Font titleFont(float height) const;
+    juce::Font bodyFont(float height) const;
+    void configureLabel(
+        juce::Label& label,
+        const juce::String& componentId,
+        juce::Colour colour);
+    void drawButton(
+        juce::Graphics& graphics,
+        const InvisibleTextButton& button,
+        bool accented) const;
+
+    juce::Image appIcon_;
+    juce::Typeface::Ptr uiTypeface_;
+    juce::Typeface::Ptr cjkTypeface_;
+    const juce::LocalisedStrings& simplifiedChineseStrings_;
+    juce::Label projectNameLabel_;
+    juce::Label versionLabel_;
+    juce::Label descriptionLabel_;
+    juce::Label copyrightLabel_;
+    juce::Label licenseLabel_;
+    InvisibleTextButton githubButton_;
+    InvisibleTextButton closeButton_;
+
+    JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(AboutOverlay)
+};
+
 class GravePitchAudioProcessorEditor final
     : public juce::AudioProcessorEditor
     , private juce::Timer {
@@ -71,7 +123,7 @@ private:
     void drawMovingIndicator(juce::Graphics& graphics) const;
     void drawDrawerOverlay(juce::Graphics& graphics) const;
     void drawDrawerValues(juce::Graphics& graphics) const;
-    void showLanguageMenu();
+    void showMoreMenu();
     void refreshTuningList(bool refreshStringEditors = true);
     void applyCustomTuningFromEditors();
     void setDrawerOpen(bool shouldOpen);
@@ -96,7 +148,7 @@ private:
     juce::LocalisedStrings simplifiedChineseStrings_;
     GravePitchUiLanguage uiLanguage_ = GravePitchUiLanguage::english;
 
-    MoreMenuButton languageMenuButton_;
+    MoreMenuButton moreMenuButton_;
     MuteToggleButton muteButton_;
     InTuneIndicator inTuneIndicator_;
     InvisibleTextButton tuningDrawerButton_;
@@ -106,6 +158,7 @@ private:
     InvisibleTextButton saveCustomButton_;
     InvisibleTextButton doneButton_;
     std::array<InvisibleComboBox, 6> stringEditors_;
+    std::unique_ptr<AboutOverlay> aboutOverlay_;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR(GravePitchAudioProcessorEditor)
 };
