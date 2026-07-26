@@ -24,6 +24,24 @@ bool expectNear(float actual, float expected, const char* message)
     return expectTrue(std::abs(actual - expected) < 0.000001f, message);
 }
 
+float averageLuminance(const juce::Image& image, juce::Rectangle<int> area)
+{
+    double luminance = 0.0;
+    int pixelCount = 0;
+
+    for (int y = area.getY(); y < area.getBottom(); ++y) {
+        for (int x = area.getX(); x < area.getRight(); ++x) {
+            const auto colour = image.getPixelAt(x, y);
+            luminance += 0.2126 * colour.getRed()
+                + 0.7152 * colour.getGreen()
+                + 0.0722 * colour.getBlue();
+            ++pixelCount;
+        }
+    }
+
+    return pixelCount > 0 ? static_cast<float>(luminance / pixelCount) : 0.0f;
+}
+
 bool bufferIsSilent(const juce::AudioBuffer<float>& buffer)
 {
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel) {
@@ -374,6 +392,19 @@ bool testAboutOverlayContentAndBehaviour()
 
     aboutOverlay->showOverlay();
     ok &= expectTrue(aboutOverlay->isVisible(), "about overlay can be opened");
+
+    juce::Image aboutImage(
+        juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
+    juce::Graphics aboutGraphics(aboutImage);
+    editor->paintEntireComponent(aboutGraphics, true);
+    const auto iconBackingLuminance = averageLuminance(
+        aboutImage, juce::Rectangle<int>(422, 141, 3, 14));
+    const auto cardBackgroundLuminance = averageLuminance(
+        aboutImage, juce::Rectangle<int>(408, 141, 3, 14));
+    ok &= expectTrue(
+        iconBackingLuminance >= cardBackgroundLuminance + 12.0f,
+        "about icon has enough backing contrast against the dark card");
+
     const auto outsideClickTime = juce::Time::getCurrentTime();
     const juce::MouseEvent outsideClick(
         juce::Desktop::getInstance().getMainMouseSource(),

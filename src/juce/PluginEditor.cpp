@@ -287,9 +287,39 @@ void AboutOverlay::paint(juce::Graphics& graphics)
     graphics.setColour(juce::Colours::white.withAlpha(0.10f));
     graphics.drawRoundedRectangle(card.reduced(2.0f), 4.0f, 0.7f);
 
-    graphics.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-    graphics.drawImage(appIcon_, juce::Rectangle<float>(
-        card.getCentreX() - 36.0f, card.getY() + 2.0f, 72.0f, 72.0f));
+    const auto iconBounds = juce::Rectangle<float>(
+        card.getCentreX() - 36.0f, card.getY() + 2.0f, 72.0f, 72.0f);
+    const auto iconBacking = iconBounds.expanded(3.0f);
+    const auto iconHalo = iconBounds.expanded(8.0f);
+
+    {
+        juce::Graphics::ScopedSaveState iconState(graphics);
+        graphics.reduceClipRegion(cardBounds().reduced(2));
+        graphics.setGradientFill(juce::ColourGradient(
+            juce::Colour(0xffb8aa98).withAlpha(0.18f),
+            iconBounds.getCentreX(), iconBounds.getCentreY(),
+            juce::Colour(0xffb8aa98).withAlpha(0.0f),
+            iconHalo.getRight(), iconBounds.getCentreY(), true));
+        graphics.fillEllipse(iconHalo);
+
+        graphics.setGradientFill(juce::ColourGradient(
+            juce::Colour(0xff5a554f).withAlpha(0.90f),
+            iconBacking.getCentreX(), iconBacking.getY(),
+            juce::Colour(0xff2b2927).withAlpha(0.96f),
+            iconBacking.getCentreX(), iconBacking.getBottom(), false));
+        graphics.fillEllipse(iconBacking);
+        graphics.setColour(juce::Colour(0xffc0b5a8).withAlpha(0.42f));
+        graphics.drawEllipse(iconBacking.reduced(0.5f), 1.0f);
+
+        graphics.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+        graphics.drawImage(appIcon_, iconBounds);
+        graphics.setColour(juce::Colour(0xffffedda).withAlpha(0.09f));
+        graphics.drawImage(
+            appIcon_,
+            iconBounds,
+            juce::RectanglePlacement::stretchToFit,
+            true);
+    }
 
     graphics.setColour(juce::Colour(0xff89847d).withAlpha(0.64f));
     graphics.drawLine(card.getX() + 24.0f, card.getY() + 231.0f,
