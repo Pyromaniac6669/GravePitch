@@ -15,35 +15,10 @@ constexpr int editorWidth = 920;
 constexpr int editorHeight = 520;
 constexpr float scaleLeft = 58.0f;
 constexpr float scaleRight = 862.0f;
-constexpr int iconGlowSourcePadding = 12;
 
 juce::Image imageFromMemory(const void* data, int size)
 {
     return juce::ImageCache::getFromMemory(data, size);
-}
-
-juce::Image createIconGlow(const juce::Image& icon)
-{
-    if (!icon.isValid()) {
-        return {};
-    }
-
-    const auto width = icon.getWidth() + 2 * iconGlowSourcePadding;
-    const auto height = icon.getHeight() + 2 * iconGlowSourcePadding;
-    juce::Image glowSource(juce::Image::ARGB, width, height, true);
-    {
-        juce::Graphics sourceGraphics(glowSource);
-        sourceGraphics.drawImageAt(icon, iconGlowSourcePadding, iconGlowSourcePadding);
-    }
-
-    juce::Image glow(juce::Image::ARGB, width, height, true);
-    {
-        juce::Graphics glowGraphics(glow);
-        juce::DropShadow(
-            juce::Colour(0xffb8aa98).withAlpha(0.22f), 11, {}).drawForImage(glowGraphics, glowSource);
-    }
-
-    return glow;
 }
 
 juce::Font fontWithFallback(
@@ -191,7 +166,6 @@ AboutOverlay::AboutOverlay(
     juce::Typeface::Ptr cjkTypeface,
     const juce::LocalisedStrings& simplifiedChineseStrings)
     : appIcon_(std::move(appIcon))
-    , appIconGlow_(createIconGlow(appIcon_))
     , uiTypeface_(std::move(uiTypeface))
     , cjkTypeface_(std::move(cjkTypeface))
     , simplifiedChineseStrings_(simplifiedChineseStrings)
@@ -315,21 +289,9 @@ void AboutOverlay::paint(juce::Graphics& graphics)
 
     const auto iconBounds = juce::Rectangle<float>(
         card.getCentreX() - 36.0f, card.getY() + 2.0f, 72.0f, 72.0f);
-    const auto iconScale = iconBounds.getWidth()
-        / static_cast<float>(appIcon_.getWidth());
-    const auto glowPadding = iconGlowSourcePadding * iconScale;
-
+    graphics.setOpacity(1.0f);
     graphics.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
-    graphics.drawImage(
-        appIconGlow_,
-        iconBounds.expanded(glowPadding));
     graphics.drawImage(appIcon_, iconBounds);
-    graphics.setColour(juce::Colour(0xffffedda).withAlpha(0.30f));
-    graphics.drawImage(
-        appIcon_,
-        iconBounds,
-        juce::RectanglePlacement::stretchToFit,
-        true);
 
     graphics.setColour(juce::Colour(0xff89847d).withAlpha(0.64f));
     graphics.drawLine(card.getX() + 24.0f, card.getY() + 231.0f,

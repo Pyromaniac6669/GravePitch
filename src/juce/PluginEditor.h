@@ -89,7 +89,6 @@ private:
         bool accented) const;
 
     juce::Image appIcon_;
-    juce::Image appIconGlow_;
     juce::Typeface::Ptr uiTypeface_;
     juce::Typeface::Ptr cjkTypeface_;
     const juce::LocalisedStrings& simplifiedChineseStrings_;

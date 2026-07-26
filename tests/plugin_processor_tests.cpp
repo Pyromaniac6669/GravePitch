@@ -24,26 +24,6 @@ bool expectNear(float actual, float expected, const char* message)
     return expectTrue(std::abs(actual - expected) < 0.000001f, message);
 }
 
-float colourLuminance(juce::Colour colour)
-{
-    return 0.2126f * colour.getRed() + 0.7152f * colour.getGreen() + 0.0722f * colour.getBlue();
-}
-
-float averageLuminance(const juce::Image& image, juce::Rectangle<int> area)
-{
-    double luminance = 0.0;
-    int pixelCount = 0;
-
-    for (int y = area.getY(); y < area.getBottom(); ++y) {
-        for (int x = area.getX(); x < area.getRight(); ++x) {
-            luminance += colourLuminance(image.getPixelAt(x, y));
-            ++pixelCount;
-        }
-    }
-
-    return pixelCount > 0 ? static_cast<float>(luminance / pixelCount) : 0.0f;
-}
-
 bool bufferIsSilent(const juce::AudioBuffer<float>& buffer)
 {
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel) {
@@ -352,6 +332,64 @@ bool testAboutOverlayContentAndBehaviour()
         BinaryData::gravepitch_app_icon_2x_pngSize);
     ok &= expectTrue(aboutIcon.getWidth() == 128 && aboutIcon.getHeight() == 128,
         "about overlay uses the dedicated 128-pixel 2x app icon");
+
+    const juce::LocalisedStrings testTranslations(
+        juce::String::fromUTF8(
+            reinterpret_cast<const char*>(BinaryData::zhHans_txt),
+            BinaryData::zhHans_txtSize),
+        false);
+    const auto oswaldTypeface = juce::Typeface::createSystemTypefaceFor(
+        BinaryData::OswaldVariable_ttf,
+        static_cast<std::size_t>(BinaryData::OswaldVariable_ttfSize));
+    const auto cjkTypeface = juce::Typeface::createSystemTypefaceFor(
+        BinaryData::GravePitchCjkSubset_ttf,
+        static_cast<std::size_t>(BinaryData::GravePitchCjkSubset_ttfSize));
+    juce::Image transparentIcon(
+        juce::Image::ARGB, aboutIcon.getWidth(), aboutIcon.getHeight(), true);
+
+    AboutOverlay directIconOverlay(
+        aboutIcon, oswaldTypeface, cjkTypeface, testTranslations);
+    AboutOverlay transparentIconOverlay(
+        transparentIcon, oswaldTypeface, cjkTypeface, testTranslations);
+    directIconOverlay.setBounds(0, 0, editor->getWidth(), editor->getHeight());
+    transparentIconOverlay.setBounds(0, 0, editor->getWidth(), editor->getHeight());
+    directIconOverlay.setVisible(true);
+    transparentIconOverlay.setVisible(true);
+
+    const auto renderOverlay = [
+        width = editor->getWidth(),
+        height = editor->getHeight()](AboutOverlay& overlay) {
+        juce::Image image(juce::Image::ARGB, width, height, true);
+        juce::Graphics graphics(image);
+        overlay.paintEntireComponent(graphics, true);
+        return image;
+    };
+
+    const auto directIconImage = renderOverlay(directIconOverlay);
+    auto expectedDirectIconImage = renderOverlay(transparentIconOverlay);
+    const auto iconBounds = juce::Rectangle<float>(
+        aboutOverlay->cardBounds().getCentreX() - 36.0f,
+        aboutOverlay->cardBounds().getY() + 2.0f, 72.0f, 72.0f);
+    {
+        juce::Graphics expectedGraphics(expectedDirectIconImage);
+        expectedGraphics.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
+        expectedGraphics.drawImage(aboutIcon, iconBounds);
+    }
+
+    const auto comparisonBounds = iconBounds.expanded(8.0f)
+        .withTrimmedBottom(12.0f).getSmallestIntegerContainer();
+    int mismatchedPixels = 0;
+    for (int y = comparisonBounds.getY(); y < comparisonBounds.getBottom(); ++y) {
+        for (int x = comparisonBounds.getX(); x < comparisonBounds.getRight(); ++x) {
+            mismatchedPixels += directIconImage.getPixelAt(x, y)
+                    != expectedDirectIconImage.getPixelAt(x, y)
+                ? 1 : 0;
+        }
+    }
+    ok &= expectTrue(
+        mismatchedPixels == 0,
+        "about overlay draws the original icon once without visual effects");
+
     ok &= expectTrue(aboutOverlay->projectNameText() == "GRAVEPITCH",
         "about overlay keeps the project name in English");
     ok &= expectTrue(aboutOverlay->versionText() == "Version " + juce::String(JucePlugin_VersionString),
@@ -394,44 +432,6 @@ bool testAboutOverlayContentAndBehaviour()
 
     aboutOverlay->showOverlay();
     ok &= expectTrue(aboutOverlay->isVisible(), "about overlay can be opened");
-
-    juce::Image aboutImage(
-        juce::Image::ARGB, editor->getWidth(), editor->getHeight(), true);
-    juce::Graphics aboutGraphics(aboutImage);
-    editor->paintEntireComponent(aboutGraphics, true);
-    const auto iconBackingLuminance = averageLuminance(
-        aboutImage, juce::Rectangle<int>(422, 141, 3, 14));
-    const auto cardBackgroundLuminance = averageLuminance(
-        aboutImage, juce::Rectangle<int>(408, 141, 3, 14));
-    const auto hardBackingDifference = std::abs(
-        iconBackingLuminance - cardBackgroundLuminance);
-    ok &= expectTrue(
-        hardBackingDifference < 8.0f,
-        "about icon avoids a hard geometric backing");
-
-    const auto scaledAboutIcon = aboutIcon.rescaled(
-        72, 72, juce::Graphics::highResamplingQuality);
-    double midtoneLift = 0.0;
-    int opaquePixelCount = 0;
-    for (int y = 0; y < scaledAboutIcon.getHeight(); ++y) {
-        for (int x = 0; x < scaledAboutIcon.getWidth(); ++x) {
-            const auto sourceColour = scaledAboutIcon.getPixelAt(x, y);
-            if (sourceColour.getAlpha() < 192) {
-                continue;
-            }
-
-            const auto renderedColour = aboutImage.getPixelAt(424 + x, 112 + y);
-            midtoneLift += colourLuminance(renderedColour)
-                - colourLuminance(sourceColour);
-            ++opaquePixelCount;
-        }
-    }
-    const auto averageMidtoneLift = opaquePixelCount > 0
-        ? static_cast<float>(midtoneLift / opaquePixelCount)
-        : 0.0f;
-    ok &= expectTrue(
-        averageMidtoneLift >= 15.0f,
-        "about icon midtones are lifted without replacing its artwork");
 
     const auto outsideClickTime = juce::Time::getCurrentTime();
     const juce::MouseEvent outsideClick(
