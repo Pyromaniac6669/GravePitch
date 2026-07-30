@@ -6,6 +6,8 @@
 #include "gravepitch/core/TunerEngine.h"
 #include "gravepitch/core/Tuning.h"
 
+#include <algorithm>
+#include <array>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
@@ -104,6 +106,56 @@ void testTunings()
 {
     using namespace gravepitch;
 
+    const auto builtIns = builtInTunings();
+    expectTrue(builtIns.size() == 12, "twelve curated built-in tunings exist");
+
+    const auto& customChoices = customTuningNoteChoices();
+    constexpr std::array<int, 6> expectedFirstNotes {35, 40, 45, 50, 54, 59};
+    for (std::size_t stringIndex = 0; stringIndex < customChoices.size(); ++stringIndex) {
+        const auto& choices = customChoices[stringIndex];
+        expectTrue(choices.front() == expectedFirstNotes[stringIndex],
+            "custom string range starts at the expected pitch");
+        expectTrue(choices.back() == expectedFirstNotes[stringIndex] + 11,
+            "custom string range spans twelve unique semitones");
+        for (std::size_t choiceIndex = 1; choiceIndex < choices.size(); ++choiceIndex) {
+            expectTrue(choices[choiceIndex] == choices[choiceIndex - 1] + 1,
+                "custom string choices remain chromatic and ascending");
+        }
+    }
+
+    for (const auto& tuning : builtIns) {
+        for (std::size_t stringIndex = 0;
+             stringIndex < customChoices.size() && stringIndex < tuning.midiNotesLowToHigh.size();
+             ++stringIndex) {
+            const auto& choices = customChoices[stringIndex];
+            expectTrue(
+                std::find(
+                    choices.begin(), choices.end(), tuning.midiNotesLowToHigh[stringIndex])
+                    != choices.end(),
+                tuning.id + " fits every custom string range");
+        }
+    }
+
+    const auto expectTuningNotes = [](const std::string& id, const std::vector<std::string>& noteNames) {
+        const auto tuning = tuningById(id);
+        expectTrue(tuning.has_value(), id + " exists");
+        if (!tuning) {
+            return;
+        }
+
+        std::vector<int> expectedMidiNotes;
+        expectedMidiNotes.reserve(noteNames.size());
+        for (const auto& noteName : noteNames) {
+            const auto midiNote = midiNoteFromName(noteName);
+            expectTrue(midiNote.has_value(), noteName + " parses");
+            if (midiNote) {
+                expectedMidiNotes.push_back(*midiNote);
+            }
+        }
+        expectTrue(tuning->midiNotesLowToHigh == expectedMidiNotes,
+            id + " uses the expected low-to-high pitches");
+    };
+
     const auto standard = tuningById("standard");
     expectTrue(standard.has_value(), "standard tuning exists");
     expectTrue(standard->midiNotesLowToHigh.size() == 6, "standard tuning has six strings");
@@ -117,6 +169,13 @@ void testTunings()
     const auto dropC = tuningById("drop_c");
     expectTrue(dropC.has_value(), "Drop C exists");
     expectTrue(dropC->midiNotesLowToHigh.front() == midiNoteFromName("C2").value(), "Drop C low string is C2");
+
+    expectTuningNotes("csharp_standard", {"C#2", "F#2", "B2", "E3", "G#3", "C#4"});
+    expectTuningNotes("b_standard", {"B1", "E2", "A2", "D3", "F#3", "B3"});
+    expectTuningNotes("drop_csharp", {"C#2", "G#2", "C#3", "F#3", "A#3", "D#4"});
+    expectTuningNotes("drop_b", {"B1", "F#2", "B2", "E3", "G#3", "C#4"});
+    expectTuningNotes("double_drop_d", {"D2", "A2", "D3", "G3", "B3", "D4"});
+    expectTuningNotes("open_g", {"D2", "G2", "D3", "G3", "B3", "D4"});
 
     const auto custom = tuningFromNoteNames("custom", "Custom", {"C2", "G2", "C3", "F3", "A3", "D4"});
     expectTrue(custom.has_value(), "custom tuning parses");

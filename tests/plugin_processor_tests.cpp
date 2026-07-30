@@ -3,6 +3,7 @@
 
 #include "BinaryData.h"
 
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <memory>
@@ -57,6 +58,35 @@ void fillStereoSine(
             buffer.setSample(channel, sample, value);
         }
     }
+}
+
+juce::String selectedTuningId(const GravePitchAudioProcessor& processor)
+{
+    const auto tunings = processor.tunings();
+    const int selectedIndex = processor.tuningIndex();
+    if (selectedIndex < 0 || selectedIndex >= static_cast<int>(tunings.size())) {
+        return {};
+    }
+
+    return tunings[static_cast<std::size_t>(selectedIndex)].id;
+}
+
+int tuningIndexForId(const GravePitchAudioProcessor& processor, const juce::String& id)
+{
+    const auto tunings = processor.tunings();
+    for (int index = 0; index < static_cast<int>(tunings.size()); ++index) {
+        if (tunings[static_cast<std::size_t>(index)].id == id) {
+            return index;
+        }
+    }
+
+    return -1;
+}
+
+juce::ComboBox* stringEditor(juce::AudioProcessorEditor& editor, int stringNumber)
+{
+    return dynamic_cast<juce::ComboBox*>(
+        editor.findChildWithID("stringEditor" + juce::String(stringNumber)));
 }
 
 bool testMuteDefaultsToOnAndStillAnalyses()
@@ -129,7 +159,6 @@ bool testLegacyStateDefaultsToMuted()
 {
     juce::ValueTree legacyState("GravePitchState");
     legacyState.setProperty("a4Hz", 440.0, nullptr);
-    legacyState.setProperty("selectedTuningIndex", 0, nullptr);
     legacyState.setProperty("customTuning", "", nullptr);
 
     juce::MemoryBlock state;
@@ -161,7 +190,6 @@ bool testUiLanguageStateRoundTripsAndDefaultsSafely()
 
     juce::ValueTree invalidState("GravePitchState");
     invalidState.setProperty("a4Hz", 440.0, nullptr);
-    invalidState.setProperty("selectedTuningIndex", 0, nullptr);
     invalidState.setProperty("customTuning", "", nullptr);
     invalidState.setProperty("uiLanguage", "unsupported", nullptr);
     juce::MemoryBlock invalidData;
@@ -176,7 +204,6 @@ bool testUiLanguageStateRoundTripsAndDefaultsSafely()
 
     juce::ValueTree legacyState("GravePitchState");
     legacyState.setProperty("a4Hz", 440.0, nullptr);
-    legacyState.setProperty("selectedTuningIndex", 0, nullptr);
     legacyState.setProperty("customTuning", "", nullptr);
     juce::MemoryBlock legacyData;
     if (auto xml = legacyState.createXml()) {
@@ -187,6 +214,136 @@ bool testUiLanguageStateRoundTripsAndDefaultsSafely()
     restored.setStateInformation(legacyData.getData(), static_cast<int>(legacyData.getSize()));
     ok &= expectTrue(restored.uiLanguage() == GravePitchUiLanguage::english,
         "legacy state without a language defaults to English");
+    return ok;
+}
+
+bool testTuningSelectionStateUsesStableIds()
+{
+    GravePitchAudioProcessor source;
+    const int dropBIndex = tuningIndexForId(source, "drop_b");
+    bool ok = expectTrue(dropBIndex >= 0, "Drop B is available for state persistence");
+    if (dropBIndex < 0) {
+        return false;
+    }
+    source.setTuningIndex(dropBIndex);
+
+    juce::MemoryBlock sourceData;
+    source.getStateInformation(sourceData);
+    auto sourceXml = juce::AudioProcessor::getXmlFromBinary(
+        sourceData.getData(), static_cast<int>(sourceData.getSize()));
+    ok &= expectTrue(sourceXml != nullptr, "tuning state serializes as XML");
+    if (sourceXml == nullptr) {
+        return false;
+    }
+
+    auto savedState = juce::ValueTree::fromXml(*sourceXml);
+    ok &= expectTrue(savedState.getProperty("selectedTuningId").toString() == "drop_b",
+        "tuning state stores the stable preset id");
+    ok &= expectTrue(!savedState.hasProperty("selectedTuningIndex"),
+        "tuning state does not store an index");
+
+    GravePitchAudioProcessor restored;
+    restored.setStateInformation(
+        sourceData.getData(), static_cast<int>(sourceData.getSize()));
+    ok &= expectTrue(selectedTuningId(restored) == "drop_b",
+        "stable tuning id restores the selected built-in preset");
+
+    source.setCustomTuning({"C2", "G2", "C3", "F3", "A3", "D4"});
+    juce::MemoryBlock customData;
+    source.getStateInformation(customData);
+    GravePitchAudioProcessor customRestored;
+    customRestored.setStateInformation(
+        customData.getData(), static_cast<int>(customData.getSize()));
+    ok &= expectTrue(selectedTuningId(customRestored) == "custom",
+        "custom tuning and its stable id round-trip together");
+
+    juce::ValueTree unknownIdState("GravePitchState");
+    unknownIdState.setProperty("a4Hz", 440.0, nullptr);
+    unknownIdState.setProperty("selectedTuningId", "removed_tuning", nullptr);
+    unknownIdState.setProperty("customTuning", "", nullptr);
+    juce::MemoryBlock unknownIdData;
+    if (auto xml = unknownIdState.createXml()) {
+        juce::AudioProcessor::copyXmlToBinary(*xml, unknownIdData);
+    }
+
+    GravePitchAudioProcessor unknownIdRestored;
+    unknownIdRestored.setStateInformation(
+        unknownIdData.getData(), static_cast<int>(unknownIdData.getSize()));
+    ok &= expectTrue(selectedTuningId(unknownIdRestored) == "standard",
+        "unknown stable tuning ids fall back to Standard");
+    return ok;
+}
+
+bool testTuningPresetMenuUsesLocalizedGroups()
+{
+    GravePitchAudioProcessor processor;
+    processor.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
+    std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
+    bool ok = expectTrue(editor != nullptr, "editor is created for tuning menu inspection");
+    if (editor == nullptr) {
+        return false;
+    }
+
+    auto* tuningBox = dynamic_cast<juce::ComboBox*>(editor->findChildWithID("tuningPresetBox"));
+    ok &= expectTrue(tuningBox != nullptr, "editor exposes the tuning preset selector");
+    if (tuningBox == nullptr) {
+        return false;
+    }
+
+    ok &= expectTrue(tuningBox->getNumItems() == 12,
+        "tuning selector contains the curated built-in preset set");
+
+    std::vector<juce::String> groupNames;
+    std::vector<int> groupSizes;
+    juce::PopupMenu::MenuItemIterator groups(*tuningBox->getRootMenu(), false);
+    while (groups.next()) {
+        const auto& item = groups.getItem();
+        if (item.subMenu != nullptr) {
+            groupNames.push_back(item.text);
+            groupSizes.push_back(item.subMenu->getNumItems());
+        }
+    }
+
+    ok &= expectTrue(groupNames == std::vector<juce::String> {
+            juce::String::fromUTF8("标准调弦"),
+            juce::String::fromUTF8("Drop 调弦"),
+            juce::String::fromUTF8("开放调弦")
+        },
+        "tuning selector localizes its three group names");
+    ok &= expectTrue(groupSizes == std::vector<int> {6, 5, 1},
+        "tuning selector groups Standard, Drop and Open presets");
+
+    int dropBItemId = 0;
+    for (int index = 0; index < tuningBox->getNumItems(); ++index) {
+        if (tuningBox->getItemText(index) == "Drop B") {
+            dropBItemId = tuningBox->getItemId(index);
+            break;
+        }
+    }
+    ok &= expectTrue(dropBItemId != 0, "Drop B appears in the grouped selector");
+    if (dropBItemId != 0) {
+        tuningBox->setSelectedId(dropBItemId, juce::sendNotificationSync);
+        ok &= expectTrue(selectedTuningId(processor) == "drop_b",
+            "submenu selection applies the matching processor tuning");
+    }
+
+    processor.setUiLanguage(GravePitchUiLanguage::english);
+    juce::Thread::sleep(40);
+    juce::Timer::callPendingTimersSynchronously();
+    std::vector<juce::String> englishGroupNames;
+    juce::PopupMenu::MenuItemIterator englishGroups(*tuningBox->getRootMenu(), false);
+    while (englishGroups.next()) {
+        const auto& item = englishGroups.getItem();
+        if (item.subMenu != nullptr) {
+            englishGroupNames.push_back(item.text);
+        }
+    }
+    ok &= expectTrue(englishGroupNames == std::vector<juce::String> {
+            "Standard Tunings", "Drop Tunings", "Open Tunings"
+        },
+        "language switching refreshes tuning group names in place");
+    ok &= expectTrue(selectedTuningId(processor) == "drop_b",
+        "language switching preserves the selected submenu tuning");
     return ok;
 }
 
@@ -207,7 +364,8 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
     juce::TextButton* moreMenuButton = nullptr;
     juce::TextButton* tuningDrawerButton = nullptr;
     juce::TextButton* saveButton = nullptr;
-    juce::ComboBox* draftStringEditor = nullptr;
+    juce::ComboBox* tuningPresetBox = nullptr;
+    juce::ComboBox* draftStringEditor = stringEditor(*editor, 6);
     bool foundLocalizedDrawerButton = false;
     bool foundLocalizedSaveButton = false;
     bool foundLocalizedDoneButton = false;
@@ -231,12 +389,12 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
         }
 
         if (auto* comboBox = dynamic_cast<juce::ComboBox*>(component)) {
-            if (comboBox->getNumItems() == 7) {
-                foundLocalizedCustomTuning = comboBox->getItemText(0) == "Standard"
+            if (comboBox->getComponentID() == "tuningPresetBox") {
+                tuningPresetBox = comboBox;
+                foundLocalizedCustomTuning = comboBox->getNumItems() == 13
+                    && comboBox->getItemText(0) == "Standard"
                     && comboBox->getItemText(2) == "D Standard"
-                    && comboBox->getItemText(6) == juce::String::fromUTF8("自定义");
-            } else if (comboBox->getNumItems() == 53 && draftStringEditor == nullptr) {
-                draftStringEditor = comboBox;
+                    && comboBox->getItemText(12) == juce::String::fromUTF8("自定义");
             }
         }
     }
@@ -252,6 +410,7 @@ bool testSimplifiedChineseEditorTextAndInstanceIsolation()
     ok &= expectTrue(foundLocalizedDrawerButton, "collapsed tuning control localizes only its generic suffix");
     ok &= expectTrue(foundLocalizedSaveButton, "save custom action is localized");
     ok &= expectTrue(foundLocalizedDoneButton, "done action is localized");
+    ok &= expectTrue(tuningPresetBox != nullptr, "editor identifies the tuning preset selector");
     ok &= expectTrue(foundLocalizedCustomTuning,
         "custom tuning is localized while built-in tuning names stay English");
 
@@ -298,14 +457,7 @@ bool testAboutOverlayContentAndBehaviour()
         editor->findChildWithID("tuningDrawerButton"));
     auto* saveButton = dynamic_cast<juce::TextButton*>(
         editor->findChildWithID("saveCustomButton"));
-    juce::ComboBox* draftStringEditor = nullptr;
-    for (auto* child : editor->getChildren()) {
-        if (auto* comboBox = dynamic_cast<juce::ComboBox*>(child);
-            comboBox != nullptr && comboBox->getNumItems() == 53) {
-            draftStringEditor = comboBox;
-            break;
-        }
-    }
+    auto* draftStringEditor = stringEditor(*editor, 6);
 
     ok &= expectTrue(aboutOverlay != nullptr, "editor owns a full-size about overlay");
     ok &= expectTrue(tuningDrawerButton != nullptr, "editor exposes the tuning drawer control");
@@ -524,6 +676,12 @@ bool testBundledCjkFontCoversTranslationCharacters()
         "translation resource contains the tuning configuration title");
     ok &= expectTrue(translations.translate("SAVE AS CUSTOM") == juce::String::fromUTF8("保存为自定义"),
         "translation resource contains the custom tuning action");
+    ok &= expectTrue(translations.translate("Standard Tunings") == juce::String::fromUTF8("标准调弦"),
+        "translation resource contains the Standard tuning group");
+    ok &= expectTrue(translations.translate("Drop Tunings") == juce::String::fromUTF8("Drop 调弦"),
+        "translation resource contains the Drop tuning group");
+    ok &= expectTrue(translations.translate("Open Tunings") == juce::String::fromUTF8("开放调弦"),
+        "translation resource contains the Open tuning group");
     ok &= expectTrue(translations.translate("About") == juce::String::fromUTF8("关于"),
         "translation resource contains the about menu action");
     ok &= expectTrue(
@@ -541,7 +699,7 @@ bool testBundledCjkFontCoversTranslationCharacters()
         return false;
     }
 
-    auto translatedText = juce::String::fromUTF8("简体中文语言");
+    auto translatedText = juce::String::fromUTF8("简体中文语言更多");
     for (const auto& value : translations.getMappings().getAllValues()) {
         translatedText += value;
     }
@@ -698,7 +856,7 @@ bool testEditorKeepsOnlyActionableReadouts()
     return ok;
 }
 
-bool testEditorUsesSharpOnlyNoteChoices()
+bool testEditorUsesPerStringNoteChoices()
 {
     GravePitchAudioProcessor processor;
     std::unique_ptr<juce::AudioProcessorEditor> editor(processor.createEditor());
@@ -707,27 +865,102 @@ bool testEditorUsesSharpOnlyNoteChoices()
         return false;
     }
 
-    int stringEditorCount = 0;
-    for (int componentIndex = 0; componentIndex < editor->getNumChildComponents(); ++componentIndex) {
-        auto* comboBox = dynamic_cast<juce::ComboBox*>(editor->getChildComponent(componentIndex));
-        if (comboBox == nullptr || comboBox->getNumItems() <= 20) {
+    const auto& noteChoices = gravepitch::customTuningNoteChoices();
+    constexpr std::array<const char*, 6> standardPitchClasses {"E", "A", "D", "G", "B", "E"};
+    std::array<juce::ComboBox*, 6> editors {};
+    for (std::size_t stringIndex = 0; stringIndex < editors.size(); ++stringIndex) {
+        const int stringNumber = 6 - static_cast<int>(stringIndex);
+        auto* comboBox = stringEditor(*editor, stringNumber);
+        editors[stringIndex] = comboBox;
+        ok &= expectTrue(comboBox != nullptr, "editor exposes every string selector by component id");
+        if (comboBox == nullptr) {
             continue;
         }
 
-        ++stringEditorCount;
-        ok &= expectTrue(comboBox->getNumItems() == 53, "string editor contains one name per pitch");
+        ok &= expectTrue(comboBox->getNumItems() == 12,
+            "each string selector contains twelve unique pitches");
         bool containsSharp = false;
         bool containsFlat = false;
+        bool containsDigit = false;
         for (int itemIndex = 0; itemIndex < comboBox->getNumItems(); ++itemIndex) {
             const auto itemText = comboBox->getItemText(itemIndex);
+            const auto expectedText = GravePitchAudioProcessorEditor::noteNameWithoutOctave(
+                gravepitch::noteNameForMidi(
+                    noteChoices[stringIndex][static_cast<std::size_t>(itemIndex)]));
+            ok &= expectTrue(itemText == expectedText,
+                "string selector follows its low-to-high core pitch range");
             containsSharp = containsSharp || itemText.containsChar('#');
             containsFlat = containsFlat || itemText.containsChar('b');
+            containsDigit = containsDigit || itemText.containsAnyOf("0123456789");
         }
-        ok &= expectTrue(containsSharp, "string editor exposes sharp note names");
-        ok &= expectTrue(!containsFlat, "string editor omits enharmonic flat duplicates");
+        ok &= expectTrue(containsSharp, "string selector exposes sharp note names");
+        ok &= expectTrue(!containsFlat, "string selector omits enharmonic flat duplicates");
+        ok &= expectTrue(!containsDigit, "string selector hides octave numbers");
+        ok &= expectTrue(comboBox->getText() == standardPitchClasses[stringIndex],
+            "Standard tuning displays pitch classes without octaves");
     }
 
-    ok &= expectTrue(stringEditorCount == 6, "all six string editors use the canonical note list");
+    constexpr std::array<const char*, 6> dropBPitchClasses {"B", "F#", "B", "E", "G#", "C#"};
+    for (std::size_t stringIndex = 0; stringIndex < editors.size(); ++stringIndex) {
+        auto* comboBox = editors[stringIndex];
+        if (comboBox == nullptr) {
+            continue;
+        }
+
+        int matchingId = 0;
+        for (int itemIndex = 0; itemIndex < comboBox->getNumItems(); ++itemIndex) {
+            if (comboBox->getItemText(itemIndex) == dropBPitchClasses[stringIndex]) {
+                matchingId = comboBox->getItemId(itemIndex);
+                break;
+            }
+        }
+        ok &= expectTrue(matchingId != 0, "Drop B draft pitch is available for every string");
+        comboBox->setSelectedId(matchingId, juce::sendNotificationSync);
+    }
+
+    auto* saveButton = dynamic_cast<juce::TextButton*>(
+        editor->findChildWithID("saveCustomButton"));
+    ok &= expectTrue(saveButton != nullptr && saveButton->onClick != nullptr,
+        "custom tuning save action is available");
+    if (saveButton != nullptr && saveButton->onClick != nullptr) {
+        saveButton->onClick();
+    }
+
+    const int customIndex = tuningIndexForId(processor, "custom");
+    const auto tunings = processor.tunings();
+    ok &= expectTrue(customIndex >= 0 && customIndex < static_cast<int>(tunings.size()),
+        "saving pitch classes creates a Custom tuning");
+    if (customIndex >= 0 && customIndex < static_cast<int>(tunings.size())) {
+        const std::vector<int> expectedMidiNotes {
+            35, 42, 47, 52, 56, 61
+        };
+        ok &= expectTrue(
+            tunings[static_cast<std::size_t>(customIndex)].midiNotesLowToHigh == expectedMidiNotes,
+            "pitch-class-only selectors save the exact Drop B MIDI pitches");
+    }
+    ok &= expectTrue(selectedTuningId(processor) == "custom",
+        "saving pitch-class-only selectors activates Custom");
+
+    juce::MemoryBlock customState;
+    processor.getStateInformation(customState);
+    GravePitchAudioProcessor restoredProcessor;
+    restoredProcessor.setStateInformation(
+        customState.getData(), static_cast<int>(customState.getSize()));
+    std::unique_ptr<juce::AudioProcessorEditor> restoredEditor(restoredProcessor.createEditor());
+    ok &= expectTrue(restoredEditor != nullptr,
+        "restored Custom tuning creates an editor");
+    if (restoredEditor != nullptr) {
+        for (std::size_t stringIndex = 0; stringIndex < dropBPitchClasses.size(); ++stringIndex) {
+            const int stringNumber = 6 - static_cast<int>(stringIndex);
+            const auto* comboBox = stringEditor(*restoredEditor, stringNumber);
+            ok &= expectTrue(
+                comboBox != nullptr
+                    && comboBox->getText() == dropBPitchClasses[stringIndex],
+                "restored Custom state displays pitch classes without octaves");
+        }
+    }
+    ok &= expectTrue(selectedTuningId(restoredProcessor) == "custom",
+        "restored pitch-class-only state keeps Custom selected");
     return ok;
 }
 
@@ -937,6 +1170,8 @@ int main(int argc, char* argv[])
     ok &= testMuteStateRoundTrips();
     ok &= testLegacyStateDefaultsToMuted();
     ok &= testUiLanguageStateRoundTripsAndDefaultsSafely();
+    ok &= testTuningSelectionStateUsesStableIds();
+    ok &= testTuningPresetMenuUsesLocalizedGroups();
     ok &= testSimplifiedChineseEditorTextAndInstanceIsolation();
     ok &= testAboutOverlayContentAndBehaviour();
     ok &= testBundledCjkFontCoversTranslationCharacters();
@@ -944,7 +1179,7 @@ int main(int argc, char* argv[])
     ok &= testEditorRendersAtFixedSize();
     ok &= testCentsScaleIsLinearAndClamped();
     ok &= testEditorKeepsOnlyActionableReadouts();
-    ok &= testEditorUsesSharpOnlyNoteChoices();
+    ok &= testEditorUsesPerStringNoteChoices();
     ok &= testPrimaryNoteNameOmitsOctave();
     ok &= testA4UsesIntegerSliderOnly();
     ok &= testDrawerDoesNotRelayoutMainInterface();

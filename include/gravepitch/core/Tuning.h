@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -23,11 +24,13 @@ struct Tuning {
     std::optional<StringTarget> nearestTarget(double frequencyHz, double a4Hz) const;
 };
 
+using CustomTuningNoteChoices = std::array<std::array<int, 12>, 6>;
+
 std::vector<Tuning> builtInTunings();
+const CustomTuningNoteChoices& customTuningNoteChoices();
 std::optional<Tuning> tuningById(std::string_view id);
 std::optional<Tuning> tuningFromNoteNames(std::string id, std::string name, const std::vector<std::string>& notesLowToHigh);
 std::string serializeCustomTuning(const Tuning& tuning);
 std::optional<Tuning> deserializeCustomTuning(std::string_view serialized);
 
 } // namespace gravepitch
-

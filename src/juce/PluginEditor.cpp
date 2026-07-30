@@ -15,6 +15,13 @@ constexpr int editorWidth = 920;
 constexpr int editorHeight = 520;
 constexpr float scaleLeft = 58.0f;
 constexpr float scaleRight = 862.0f;
+constexpr std::array<const char*, 6> standardTuningIds {
+    "standard", "eb_standard", "d_standard", "csharp_standard", "c_standard", "b_standard"
+};
+constexpr std::array<const char*, 5> dropTuningIds {
+    "drop_d", "drop_csharp", "drop_c", "drop_b", "double_drop_d"
+};
+constexpr std::array<const char*, 1> openTuningIds {"open_g"};
 
 juce::Image imageFromMemory(const void* data, int size)
 {
@@ -32,26 +39,6 @@ juce::Font fontWithFallback(
     }
 
     return juce::Font(options);
-}
-
-std::vector<juce::String> editableNoteNames()
-{
-    constexpr std::array<const char*, 12> sharpNames {
-        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"
-    };
-    std::vector<juce::String> names;
-
-    for (int octave = 1; octave <= 5; ++octave) {
-        for (std::size_t pitchClass = 0; pitchClass < sharpNames.size(); ++pitchClass) {
-            if (octave == 5 && pitchClass > 4) {
-                break;
-            }
-
-            names.emplace_back(juce::String(sharpNames[pitchClass]) + juce::String(octave));
-        }
-    }
-
-    return names;
 }
 
 float centsToX(const juce::Rectangle<float>& scaleBounds, double cents)
@@ -451,6 +438,7 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     addAndMakeVisible(tuningDrawerButton_);
 
     styleComboBox(tuningBox_);
+    tuningBox_.setComponentID("tuningPresetBox");
     tuningBox_.setLookAndFeel(&drawerLookAndFeel_);
     tuningBox_.onChange = [this] {
         processor_.setTuningIndex(tuningBox_.getSelectedId() - 1);
@@ -475,12 +463,19 @@ GravePitchAudioProcessorEditor::GravePitchAudioProcessorEditor(GravePitchAudioPr
     };
     addAndMakeVisible(a4Slider_);
 
-    const auto noteChoices = editableNoteNames();
+    const auto& noteChoices = gravepitch::customTuningNoteChoices();
     for (std::size_t i = 0; i < stringEditors_.size(); ++i) {
         styleComboBox(stringEditors_[i]);
+        stringEditors_[i].setComponentID(
+            "stringEditor" + juce::String(6 - static_cast<int>(i)));
         stringEditors_[i].setLookAndFeel(&drawerLookAndFeel_);
-        for (int choiceIndex = 0; choiceIndex < static_cast<int>(noteChoices.size()); ++choiceIndex) {
-            stringEditors_[i].addItem(noteChoices[static_cast<std::size_t>(choiceIndex)], choiceIndex + 1);
+        for (int choiceIndex = 0;
+             choiceIndex < static_cast<int>(noteChoices[i].size());
+             ++choiceIndex) {
+            const auto noteName = noteNameWithoutOctave(juce::String(
+                gravepitch::noteNameForMidi(
+                    noteChoices[i][static_cast<std::size_t>(choiceIndex)])));
+            stringEditors_[i].addItem(noteName, choiceIndex + 1);
         }
         stringEditors_[i].onChange = [this] { repaint(); };
         addAndMakeVisible(stringEditors_[i]);
@@ -951,11 +946,43 @@ void GravePitchAudioProcessorEditor::refreshTuningList(bool refreshStringEditors
     const int selectedIndex = processor_.tuningIndex();
 
     tuningBox_.clear(juce::dontSendNotification);
-    for (int i = 0; i < static_cast<int>(allTunings.size()); ++i) {
-        const auto& tuning = allTunings[static_cast<std::size_t>(i)];
-        tuningBox_.addItem(
-            tuning.id == "custom" ? translate("Custom") : juce::String(tuning.name),
-            i + 1);
+    juce::PopupMenu standardMenu;
+    juce::PopupMenu dropMenu;
+    juce::PopupMenu openMenu;
+
+    const auto addTunings = [&allTunings](juce::PopupMenu& menu, const auto& tuningIds) {
+        for (const auto* tuningId : tuningIds) {
+            const auto tuning = std::find_if(
+                allTunings.begin(),
+                allTunings.end(),
+                [tuningId](const gravepitch::Tuning& candidate) { return candidate.id == tuningId; });
+            if (tuning == allTunings.end()) {
+                continue;
+            }
+
+            const int index = static_cast<int>(std::distance(allTunings.begin(), tuning));
+            menu.addItem(index + 1, juce::String(tuning->name));
+        }
+    };
+
+    addTunings(standardMenu, standardTuningIds);
+    addTunings(dropMenu, dropTuningIds);
+    addTunings(openMenu, openTuningIds);
+
+    auto* rootMenu = tuningBox_.getRootMenu();
+    rootMenu->addSubMenu(translate("Standard Tunings"), standardMenu);
+    rootMenu->addSubMenu(translate("Drop Tunings"), dropMenu);
+    rootMenu->addSubMenu(translate("Open Tunings"), openMenu);
+
+    const auto custom = std::find_if(
+        allTunings.begin(),
+        allTunings.end(),
+        [](const gravepitch::Tuning& tuning) { return tuning.id == "custom"; });
+    if (custom != allTunings.end()) {
+        rootMenu->addSeparator();
+        rootMenu->addItem(
+            static_cast<int>(std::distance(allTunings.begin(), custom)) + 1,
+            translate("Custom"));
     }
     tuningBox_.setSelectedId(selectedIndex + 1, juce::dontSendNotification);
 
@@ -963,8 +990,14 @@ void GravePitchAudioProcessorEditor::refreshTuningList(bool refreshStringEditors
         && selectedIndex >= 0
         && selectedIndex < static_cast<int>(allTunings.size())) {
         const auto& notes = allTunings[static_cast<std::size_t>(selectedIndex)].midiNotesLowToHigh;
+        const auto& noteChoices = gravepitch::customTuningNoteChoices();
         for (std::size_t i = 0; i < stringEditors_.size() && i < notes.size(); ++i) {
-            stringEditors_[i].setText(gravepitch::noteNameForMidi(notes[i]), juce::dontSendNotification);
+            const auto choice = std::find(noteChoices[i].begin(), noteChoices[i].end(), notes[i]);
+            stringEditors_[i].setSelectedId(
+                choice == noteChoices[i].end()
+                    ? 0
+                    : static_cast<int>(std::distance(noteChoices[i].begin(), choice)) + 1,
+                juce::dontSendNotification);
         }
     }
 
@@ -976,8 +1009,16 @@ void GravePitchAudioProcessorEditor::applyCustomTuningFromEditors()
     std::vector<juce::String> notes;
     notes.reserve(stringEditors_.size());
 
-    for (const auto& editor : stringEditors_) {
-        notes.push_back(editor.getText());
+    const auto& noteChoices = gravepitch::customTuningNoteChoices();
+    for (std::size_t i = 0; i < stringEditors_.size(); ++i) {
+        const int selectedChoice = stringEditors_[i].getSelectedId() - 1;
+        if (selectedChoice < 0
+            || selectedChoice >= static_cast<int>(noteChoices[i].size())) {
+            return;
+        }
+
+        notes.emplace_back(gravepitch::noteNameForMidi(
+            noteChoices[i][static_cast<std::size_t>(selectedChoice)]));
     }
 
     processor_.setCustomTuning(notes);
