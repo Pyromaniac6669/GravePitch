@@ -19,6 +19,19 @@ GravePitchUiLanguage uiLanguageFromId(const juce::String& id)
         : GravePitchUiLanguage::english;
 }
 
+int tuningIndexForId(
+    const std::vector<gravepitch::Tuning>& tunings,
+    std::string_view tuningId)
+{
+    const auto match = std::find_if(
+        tunings.begin(),
+        tunings.end(),
+        [tuningId](const gravepitch::Tuning& tuning) { return tuning.id == tuningId; });
+    return match == tunings.end()
+        ? -1
+        : static_cast<int>(std::distance(tunings.begin(), match));
+}
+
 } // namespace
 
 GravePitchAudioProcessor::GravePitchAudioProcessor()
@@ -151,7 +164,10 @@ void GravePitchAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 
     juce::ValueTree state("GravePitchState");
     state.setProperty("a4Hz", a4Hz_, nullptr);
-    state.setProperty("selectedTuningIndex", selectedTuningIndex_, nullptr);
+    state.setProperty(
+        "selectedTuningId",
+        juce::String(tunings_[static_cast<std::size_t>(selectedTuningIndex_)].id),
+        nullptr);
     state.setProperty("customTuning", customTuningState_, nullptr);
     state.setProperty("outputMuted", outputMuted_.load(std::memory_order_relaxed), nullptr);
     state.setProperty("uiLanguage", uiLanguageId(uiLanguage_), nullptr);
@@ -179,20 +195,21 @@ void GravePitchAudioProcessor::setStateInformation(const void* data, int sizeInB
     customTuningState_ = state.getProperty("customTuning", "").toString();
     outputMuted_.store(static_cast<bool>(state.getProperty("outputMuted", true)), std::memory_order_relaxed);
     uiLanguage_ = uiLanguageFromId(state.getProperty("uiLanguage", "en").toString());
+    tunings_ = gravepitch::builtInTunings();
 
     if (customTuningState_.isNotEmpty()) {
         const auto custom = gravepitch::deserializeCustomTuning(customTuningState_.toStdString());
         if (custom) {
-            if (tunings_.size() == gravepitch::builtInTunings().size()) {
-                tunings_.push_back(*custom);
-            } else {
-                tunings_.back() = *custom;
-            }
+            tunings_.push_back(*custom);
         }
     }
 
-    const int restoredIndex = static_cast<int>(state.getProperty("selectedTuningIndex", 0));
-    selectedTuningIndex_ = std::clamp(restoredIndex, 0, static_cast<int>(tunings_.size()) - 1);
+    selectedTuningIndex_ = tuningIndexForId(
+        tunings_,
+        state.getProperty("selectedTuningId", "standard").toString().toStdString());
+    if (selectedTuningIndex_ < 0) {
+        selectedTuningIndex_ = 0;
+    }
     rebuildEngineLocked();
 }
 
