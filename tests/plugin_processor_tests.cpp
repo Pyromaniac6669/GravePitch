@@ -789,8 +789,7 @@ bool testEditorRendersAtFixedSize()
 
     juce::Image image(juce::Image::ARGB, 920, 520, true);
     juce::Graphics graphics(image);
-    editor->setVisible(true);
-    editor->paintEntireComponent(graphics, true);
+    editor->paint(graphics);
     ok &= expectTrue(image.getPixelAt(4, 4).getAlpha() > 0, "editor paints an opaque background");
     return ok;
 }
