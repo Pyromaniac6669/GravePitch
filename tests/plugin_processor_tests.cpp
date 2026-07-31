@@ -25,6 +25,21 @@ bool expectNear(float actual, float expected, const char* message)
     return expectTrue(std::abs(actual - expected) < 0.000001f, message);
 }
 
+template <typename Predicate>
+bool waitForUiCondition(Predicate&& predicate)
+{
+    const auto deadline = juce::Time::getMillisecondCounterHiRes() + 500.0;
+    do {
+        juce::Timer::callPendingTimersSynchronously();
+        if (predicate()) {
+            return true;
+        }
+        juce::Thread::sleep(10);
+    } while (juce::Time::getMillisecondCounterHiRes() < deadline);
+
+    return predicate();
+}
+
 bool bufferIsSilent(const juce::AudioBuffer<float>& buffer)
 {
     for (int channel = 0; channel < buffer.getNumChannels(); ++channel) {
@@ -634,16 +649,17 @@ bool testAboutOverlayContentAndBehaviour()
 
     aboutOverlay->showOverlay();
     processor.setUiLanguage(GravePitchUiLanguage::simplifiedChinese);
-    juce::Thread::sleep(40);
-    juce::Timer::callPendingTimersSynchronously();
+    const auto expectedChineseVersion =
+        juce::String::fromUTF8("版本 ") + juce::String(GRAVEPITCH_RELEASE_VERSION);
+    waitForUiCondition([&] {
+        return aboutOverlay->versionText() == expectedChineseVersion;
+    });
     ok &= expectTrue(aboutOverlay->isVisible(),
         "language switching keeps the about overlay open");
     ok &= expectTrue(aboutOverlay->projectNameText() == "GRAVEPITCH",
         "Chinese about overlay keeps the project name in English");
     ok &= expectTrue(
-        aboutOverlay->versionText()
-            == juce::String::fromUTF8("版本 ")
-                + juce::String(GRAVEPITCH_RELEASE_VERSION),
+        aboutOverlay->versionText() == expectedChineseVersion,
         "Chinese about overlay localizes the dynamic version label");
     ok &= expectTrue(
         aboutOverlay->descriptionText()
@@ -773,6 +789,7 @@ bool testEditorRendersAtFixedSize()
 
     juce::Image image(juce::Image::ARGB, 920, 520, true);
     juce::Graphics graphics(image);
+    editor->setVisible(true);
     editor->paintEntireComponent(graphics, true);
     ok &= expectTrue(image.getPixelAt(4, 4).getAlpha() > 0, "editor paints an opaque background");
     return ok;
