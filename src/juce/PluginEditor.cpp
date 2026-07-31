@@ -324,7 +324,7 @@ void AboutOverlay::setLanguage(GravePitchUiLanguage language)
     };
     projectNameLabel_.setText("GRAVEPITCH", juce::dontSendNotification);
     versionLabel_.setText(
-        translate("Version ") + JucePlugin_VersionString,
+        translate("Version ") + GRAVEPITCH_RELEASE_VERSION,
         juce::dontSendNotification);
     descriptionLabel_.setText(
         translate(

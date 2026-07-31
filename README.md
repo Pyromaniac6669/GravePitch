@@ -1,11 +1,11 @@
 # GravePitch
 
-GravePitch 是一款面向吉他手的开源调音器，目标是同时提供 Windows 独立程序和 VST3 插件，便于日常练琴、录音和在 DAW 中快速检查调弦状态。
+GravePitch 是一款面向吉他手的开源调音器，目标是同时为 Windows 和 macOS 提供 Standalone 独立程序与 VST3 插件，便于日常练琴、录音和在 DAW 中快速检查调弦状态。
 
-当前版本处于早期开发阶段，核心功能包括：
+当前版本处于双平台首次公开发布准备阶段，核心功能包括：
 
 - 实时单音音高检测
-- 当前音名、频率和 cents 偏差显示
+- 当前音名、目标弦和水平 cents 偏差显示
 - 按所选调弦匹配最近目标弦
 - 常用吉他调弦预设
 - 自定义六弦调弦
@@ -22,14 +22,15 @@ GravePitch 是一款面向吉他手的开源调音器，目标是同时提供 Wi
 
 ## 构建要求
 
-- Windows
-- Visual Studio C++ Build Tools
 - CMake 3.22 或更新版本
 - JUCE 源码
+- 支持 C++17 的编译工具链
+- Windows：Windows 10／11 x64 和 Visual Studio C++ Build Tools
+- macOS：macOS 13 或更高版本、Intel 或 Apple Silicon Mac 和 Apple Command Line Tools
 
 ## 构建方式
 
-如果 `cmake` 已在 PATH 中：
+Windows 下如果 `cmake` 已在 PATH 中：
 
 ```powershell
 cmake -S . -B build -DGRAVEPITCH_JUCE_PATH=external/JUCE
@@ -47,6 +48,16 @@ ctest --test-dir build --output-on-failure
 
 如果 JUCE 不在 `external/JUCE`，请把 `GRAVEPITCH_JUCE_PATH` 改成你本机的 JUCE 源码路径。
 
+macOS 下可以使用同一套源码进行构建：
+
+```bash
+cmake -S . -B build \
+  -DGRAVEPITCH_JUCE_PATH="/path/to/JUCE" \
+  -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
 ## 项目结构
 
 - `include/gravepitch/core/`：不依赖 JUCE 的核心接口
@@ -57,8 +68,10 @@ ctest --test-dir build --output-on-failure
 ## 当前限制
 
 - 仅实现单音调音，不支持和弦或复音识别。
-- 首版主要面向 Windows。
-- 目前不提供安装器，需要从源码构建。
+- Windows 10／11 x64 与 macOS 13 或更高版本的 Intel／Apple Silicon 为首发目标平台，最终支持范围以双平台 Release 实机验收结果为准。
+- Windows 安装器和 macOS Universal 2 DMG 尚在首发准备中；正式发布前仍需从源码构建。
+- 首发先进行小范围 `0.1.0-rc.1` 候选测试，通过完整发布演练后再确认正式 `v0.1.0`。
+- 首版不提供自动下载、静默安装或程序自更新。
 
 ## 授权
 

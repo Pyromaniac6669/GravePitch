@@ -1,6 +1,17 @@
 cmake_minimum_required(VERSION 3.22)
 
+if(APPLE AND NOT DEFINED CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(CMAKE_OSX_DEPLOYMENT_TARGET "13.0" CACHE STRING "Minimum supported macOS version")
+endif()
+
 project(GravePitch VERSION 0.1.0 LANGUAGES C CXX)
+
+set(GRAVEPITCH_VERSION_PRERELEASE "rc.1" CACHE STRING "Optional GravePitch pre-release identifier")
+if(GRAVEPITCH_VERSION_PRERELEASE)
+    set(GRAVEPITCH_RELEASE_VERSION "${PROJECT_VERSION}-${GRAVEPITCH_VERSION_PRERELEASE}")
+else()
+    set(GRAVEPITCH_RELEASE_VERSION "${PROJECT_VERSION}")
+endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -93,6 +104,7 @@ if(_gravepitch_juce_dir)
     juce_add_plugin(GravePitchPlugin
         COMPANY_NAME "GravePitch"
         PRODUCT_NAME "GravePitch"
+        VERSION "${PROJECT_VERSION}"
         PLIST_TO_MERGE "${_gravepitch_plist_to_merge}"
         ICON_BIG "${_gravepitch_icon_big}"
         ICON_SMALL "${_gravepitch_icon_small}"
@@ -126,6 +138,7 @@ if(_gravepitch_juce_dir)
 
     target_compile_definitions(GravePitchPlugin
         PUBLIC
+            GRAVEPITCH_RELEASE_VERSION="${GRAVEPITCH_RELEASE_VERSION}"
             JUCE_IGNORE_VST3_MISMATCHED_PARAMETER_ID_WARNING=1
             JUCE_WEB_BROWSER=0
             JUCE_USE_CURL=0

@@ -544,7 +544,8 @@ bool testAboutOverlayContentAndBehaviour()
 
     ok &= expectTrue(aboutOverlay->projectNameText() == "GRAVEPITCH",
         "about overlay keeps the project name in English");
-    ok &= expectTrue(aboutOverlay->versionText() == "Version " + juce::String(JucePlugin_VersionString),
+    ok &= expectTrue(aboutOverlay->versionText()
+            == "Version " + juce::String(GRAVEPITCH_RELEASE_VERSION),
         "about overlay reads the build version dynamically");
     ok &= expectTrue(
         aboutOverlay->descriptionText()
@@ -641,7 +642,8 @@ bool testAboutOverlayContentAndBehaviour()
         "Chinese about overlay keeps the project name in English");
     ok &= expectTrue(
         aboutOverlay->versionText()
-            == juce::String::fromUTF8("版本 ") + juce::String(JucePlugin_VersionString),
+            == juce::String::fromUTF8("版本 ")
+                + juce::String(GRAVEPITCH_RELEASE_VERSION),
         "Chinese about overlay localizes the dynamic version label");
     ok &= expectTrue(
         aboutOverlay->descriptionText()
