@@ -17,6 +17,10 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+if(MSVC)
+    add_compile_options(/utf-8)
+endif()
+
 option(GRAVEPITCH_BUILD_TESTS "Build GravePitch core tests" ON)
 set(GRAVEPITCH_JUCE_PATH "" CACHE PATH "Path to a JUCE source checkout")
 
