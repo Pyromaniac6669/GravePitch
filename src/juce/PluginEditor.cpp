@@ -870,7 +870,6 @@ void GravePitchAudioProcessorEditor::drawDrawerOverlay(juce::Graphics& graphics)
 
 void GravePitchAudioProcessorEditor::paint(juce::Graphics& graphics)
 {
-    graphics.fillAll(juce::Colours::black);
     graphics.setImageResamplingQuality(juce::Graphics::highResamplingQuality);
     graphics.drawImage(mainPlate_, getLocalBounds().toFloat());
     graphics.drawImage(brandLogo_, juce::Rectangle<float>(24.0f, 12.0f, 300.0f, 90.0f));

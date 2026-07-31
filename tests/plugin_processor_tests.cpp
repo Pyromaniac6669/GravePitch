@@ -786,11 +786,14 @@ bool testEditorRendersAtFixedSize()
 
     ok &= expectTrue(editor->getWidth() == 920 && editor->getHeight() == 520, "editor keeps the fixed design size");
     ok &= expectTrue(!editor->isResizable(), "editor rejects host resizing");
+    ok &= expectTrue(editor->isOpaque(), "editor declares an opaque background");
 
-    juce::Image image(juce::Image::ARGB, 920, 520, true);
+    const auto sentinelColour = juce::Colours::magenta;
+    juce::Image image(juce::Image::RGB, 920, 520, true);
     juce::Graphics graphics(image);
+    graphics.fillAll(sentinelColour);
     editor->paint(graphics);
-    ok &= expectTrue(image.getPixelAt(4, 4).getAlpha() > 0, "editor paints an opaque background");
+    ok &= expectTrue(image.getPixelAt(4, 4) != sentinelColour, "editor paints its background");
     return ok;
 }
 
